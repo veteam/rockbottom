@@ -1,0 +1,16 @@
+{
+  "name": "Rock Bottom",
+  "short_name": "Rock Bottom",
+  "description": "Creuse, fusionne tes trouvailles et descends jusqu'à la Faille.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0a0c12",
+  "theme_color": "#0a0c12",
+  "icons": [
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "favicon.png", "sizes": "64x64", "type": "image/png" }
+  ]
+}
