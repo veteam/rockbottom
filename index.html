@@ -1,0 +1,4131 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Rock Bottom</title>
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <meta name="description" content="Rock Bottom : creuse, fusionne tes trouvailles et descends jusqu'à la Faille." />
+    <meta property="og:title" content="Rock Bottom" />
+    <meta property="og:description" content="Creuse, fusionne tes trouvailles et descends jusqu'à la Faille." />
+    <meta property="og:image" content="https://veteam.github.io/rockbottom/social.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!-- 2026-10-11 -- direct user request: maquette "HUD Inventaire.dc.html"
+         variante 2a ("Console de bord · objets et fusions") uses
+         'Space Grotesk' (headings/labels) and 'JetBrains Mono' (numbers,
+         monospace labels) -- scoped to #sidebar only via font-family below,
+         the rest of the game keeps its existing system-ui look. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --gold: #ffd84a;
+        --blue: #4aa3ff;
+        --gray: #c8c8d0;
+        --health-high: #3ddc5c;
+        --health-mid: #ffd84a;
+        --health-low: #e6483c;
+        --bg-deep: #0a0c12;
+        --ink: #f2ece2;
+        --ink-dim: #c9beac;
+        /* Village landmarks (Phase 34) — Merchant/SavePoint accent colours,
+           distinct from --gold (Forge) so the three hints/panels read as
+           different buildings at a glance, same palette family as their
+           tile_merchant.png/tile_savepoint.png pixel art. */
+        --teal: #3adcb6;
+        --ice: #7fb4ff;
+      }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg-deep);
+        font-family: system-ui, -apple-system, sans-serif;
+        color: var(--ink);
+      }
+
+      /* Two-column desktop layout: a fixed-ish info sidebar on the left,
+         the Phaser canvas filling the rest. #game is sized by CSS here —
+         Phaser's Scale.RESIZE mode (see src/main.ts) measures this box and
+         keeps the canvas matched to it, including on window resize. */
+      #app {
+        display: flex;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      /* 2026-10-11 — direct user request ("L'inventaire a bien été changé
+         mais le style n'est pas appliqué [...] on devrait respecter ces
+         couleurs et UI/UX") : the "2a" maquette's dark-navy/teal "console
+         de bord" palette, scoped as custom properties on #sidebar itself
+         (not :root) so it never leaks into the rest of the game — Forge/
+         Merchant/etc. modals, the in-world hint pills and combat all keep
+         their existing warm gold theme untouched, since the maquette the
+         user attached was specifically of this sidebar panel. */
+      #sidebar {
+        --sb-bg-0: #08090d;
+        --sb-bg-1: #0b0d13;
+        --sb-panel: #0a0c12;
+        --sb-card: #0f131c;
+        --sb-border: #161b26;
+        --sb-border-2: #1f2634;
+        --sb-border-3: #232a38;
+        --sb-teal: #2bd9c8;
+        --sb-ice: #8fd6ff;
+        --sb-ink: #e7ecf3;
+        --sb-ink-dim: #9aa3b5;
+        --sb-ink-dim2: #6b7385;
+        --sb-label: #56607a;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+      }
+
+      #sidebar {
+        width: 33%;
+        min-width: 260px;
+        max-width: 420px;
+        height: 100%;
+        box-sizing: border-box;
+        position: relative;
+        background: linear-gradient(160deg, var(--sb-bg-1) 0%, var(--sb-bg-0) 60%, #050608 100%);
+        border-right: 1px solid var(--sb-border-2);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
+        padding: 22px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        overflow-y: auto;
+        color: var(--sb-ink);
+      }
+      /* Scanline overlay from the maquette, a faint ice-blue hairline
+         texture over the whole panel — purely decorative, sits above the
+         background but below every real control (pointer-events: none so
+         it never intercepts clicks/taps). */
+      #sidebar::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+          0deg,
+          rgba(143, 214, 255, 0.025) 0 1px,
+          transparent 1px 3px
+        );
+        pointer-events: none;
+        z-index: 0;
+      }
+      #sidebar > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      #game {
+        flex: 1;
+        min-width: 0;
+        height: 100%;
+        background: #000;
+        position: relative;
+        /* The relief canvas is shifted up to one texel left/up to stay on
+           the texel grid (reliefView.ts offsetX/Y ≤ 0); clip it so it never
+           bleeds over the sidebar. */
+        overflow: hidden;
+      }
+
+      #sidebar-header {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--sb-border-2);
+      }
+
+      #sidebar-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      #sidebar-title-brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      /* Maquette's small glowing teal status dot — "ROCK BOTTOM / FOREUSE
+         MK-I · EN LIGNE" reads as a live console header, not just a title. */
+      #sidebar-title-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--sb-teal);
+        box-shadow: 0 0 8px 1px rgba(43, 217, 200, 0.75);
+        flex-shrink: 0;
+      }
+      #sidebar-title {
+        font-family: 'Space Grotesk', 'JetBrains Mono', monospace;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        color: var(--sb-ink);
+      }
+      #sidebar-subtitle {
+        font-size: 9.5px;
+        letter-spacing: 0.06em;
+        color: var(--sb-ink-dim2);
+        margin-top: 1px;
+      }
+      #registre-open {
+        background: var(--sb-card);
+        border: 1px solid var(--sb-border-3);
+        border-radius: 8px;
+        color: var(--sb-ink);
+        line-height: 0;
+        padding: 3px 5px;
+        cursor: pointer;
+        transition: border-color 150ms;
+      }
+      #registre-open:hover {
+        border-color: var(--sb-ice);
+      }
+
+      /* Planche 058 : la fiche du héros. Son portrait joue son humeur
+         (render/HeroFace.ts) ; à droite la profondeur, le biome et les
+         jauges ; dessous la mini-carte et le repaire côte à côte. */
+      #hero-card {
+        display: flex;
+        gap: 14px;
+      }
+      #hero-face {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex: none;
+      }
+      #hero-face-badge {
+        background: #14181f;
+        border: 2px solid color-mix(in srgb, var(--hero-accent, var(--sb-border-3)) 80%, transparent);
+        padding: 4px;
+        line-height: 0;
+        transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+      }
+      #hero-face.pain #hero-face-badge {
+        border-color: var(--health-low, #e6483c);
+        box-shadow: 0 0 12px 1px rgba(230, 72, 60, 0.55);
+      }
+      #hero-face-canvas {
+        display: block;
+        width: 128px;
+        height: 144px;
+        image-rendering: pixelated;
+      }
+      #hero-face-cap {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        font-size: 10px;
+        line-height: 1.3;
+      }
+      #hero-face-name {
+        font-weight: 700;
+        color: var(--hero-accent, var(--sb-ink));
+      }
+      #hero-face-status {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--sb-ink-dim2);
+        white-space: nowrap;
+        transition: color 120ms ease-out;
+      }
+      #hero-face-status.effort {
+        color: var(--sb-ice);
+      }
+      #hero-face-status.pain {
+        color: #e6483c;
+      }
+      #hero-face-status.win {
+        color: var(--sb-teal);
+      }
+      #hero-card-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 2px 0;
+      }
+      #depth-row {
+        display: flex;
+        flex-direction: column;
+      }
+      #depth-row .label {
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--sb-label);
+      }
+      #depth-value {
+        font-family: 'Space Grotesk', 'JetBrains Mono', monospace;
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 1.1;
+        color: var(--sb-ink);
+      }
+      #explore-row {
+        display: flex;
+        gap: 14px;
+        align-items: stretch;
+      }
+      #biome-row {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+      #biome-row .label {
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--sb-label);
+      }
+      #biome-value {
+        font-size: 12.5px;
+        font-weight: 700;
+        color: var(--sb-ink);
+      }
+      /* 7×7 by default (MINIMAP_RADIUS=3 in config.ts) -- the actual
+         column/row track count is set inline by Sidebar.buildMinimap()
+         instead of hardcoded here, so Lanterne du mineur's minimap-radius
+         bonus (2026-09-19) can grow the grid at runtime. */
+      #minimap-grid {
+        display: grid;
+        align-self: flex-start;
+        gap: 1px;
+        background: var(--sb-panel);
+        border: 1px solid var(--sb-border-2);
+        border-radius: 4px;
+        padding: 3px;
+      }
+      .minimap-cell {
+        width: 11px;
+        height: 11px;
+        border-radius: 1px;
+        background: transparent;
+        transition: background-color 0.15s ease;
+      }
+      .minimap-cell.player {
+        box-shadow: 0 0 0 1px var(--sb-teal) inset;
+      }
+      .minimap-cell.glyph {
+        box-shadow: inset 0 0 0 2px #4fd6cf;
+      }
+      .minimap-cell.lair-clue {
+        outline: 1px solid rgba(143, 214, 255, 0.55);
+        outline-offset: -1px;
+      }
+      .minimap-cell.lair-clue.player {
+        outline: none;
+      }
+      .minimap-cell.lair {
+        box-shadow: inset 0 0 0 2px #e05a5a;
+      }
+
+      /* Boss lair of the current segment: name, clue pips, known zone. */
+      #lair-panel[hidden] {
+        display: none;
+      }
+      #lair-panel {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      #lair-row {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+      #lair-row .label {
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--sb-label);
+      }
+      #lair-name {
+        font-size: 12.5px;
+        font-weight: 700;
+        color: var(--sb-ice);
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #lair-name.unknown {
+        color: var(--sb-label);
+      }
+      #lair-pips {
+        display: flex;
+        gap: 3px;
+      }
+      #lair-pips i {
+        width: 7px;
+        height: 7px;
+        border: 1px solid var(--sb-ice);
+        opacity: 0.45;
+      }
+      #lair-pips i.on {
+        background: var(--sb-ice);
+        opacity: 1;
+      }
+      #lair-pips.cleared i {
+        border-color: var(--sb-label);
+        background: var(--sb-label);
+      }
+      /* Segment gauge, village to village: the known zone's band, the
+         player's tick with its label riding it, the map side as chips. */
+      #lair-gauge {
+        display: flex;
+        gap: 8px;
+        flex: 1;
+        min-height: 56px;
+      }
+      #lair-track {
+        position: relative;
+        width: 10px;
+        flex: none;
+        border: 1px solid var(--sb-border-2);
+        background: var(--sb-card);
+      }
+      #lair-band {
+        position: absolute;
+        left: 0;
+        right: 0;
+        background: rgba(143, 214, 255, 0.35);
+        transition: top 0.3s ease, height 0.3s ease;
+      }
+      #lair-band.located {
+        background: var(--sb-ice);
+      }
+      #lair-you {
+        position: absolute;
+        left: -4px;
+        right: -4px;
+        height: 2px;
+        margin-top: -1px;
+        background: var(--sb-teal);
+      }
+      #lair-scale {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        font-size: 10px;
+        color: var(--sb-label);
+      }
+      #lair-scale span {
+        position: absolute;
+        left: 0;
+        white-space: nowrap;
+      }
+      #lair-top {
+        top: 0;
+      }
+      #lair-bottom {
+        bottom: 0;
+      }
+      #lair-you-label {
+        transform: translateY(-50%);
+        color: var(--sb-teal);
+        background: var(--sb-bg-0);
+        padding-right: 4px;
+      }
+      #lair-sides {
+        display: flex;
+        gap: 2px;
+      }
+      #lair-sides span {
+        font-size: 9px;
+        padding: 1px 4px;
+        border: 1px solid var(--sb-border-2);
+        color: var(--sb-ice);
+        opacity: 0.35;
+      }
+      #lair-sides span.on {
+        opacity: 1;
+        border-color: var(--sb-ice);
+      }
+
+      .stat-block {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .ui-icon-host {
+        display: inline-flex;
+        align-items: center;
+        flex-shrink: 0;
+      }
+      .ui-icon {
+        display: block;
+        image-rendering: pixelated;
+      }
+      #context-lost-title,
+      #forge-panel-title,
+      #merchant-panel-title,
+      #healer-panel-title,
+      #lift-panel-title,
+      #shrine-panel-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .stat-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--sb-label);
+      }
+      .talents-btn {
+        margin-left: auto;
+        font: inherit;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: transparent;
+        border: 1px solid #161b26;
+        color: var(--sb-label);
+        cursor: pointer;
+      }
+      .talents-btn.owed {
+        border-color: #e6a152;
+        color: #e6a152;
+      }
+      /* Planche 049 : un grand chiffre sur une barre fine dans la roche,
+         graduée tous les 10 %. Planche 058 : dans la fiche du héros, une
+         jauge par ligne, à côté de son portrait. */
+      .stat-block.vitals {
+        gap: 10px;
+      }
+      .vital-row {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+      .vital {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .vital .vital-head {
+        flex: none;
+        min-width: 58px;
+      }
+      .vital .bar-track {
+        flex: 1;
+      }
+      .vital .vital-max {
+        display: none;
+      }
+      .vital[hidden] {
+        display: none;
+      }
+      .vital-head {
+        display: flex;
+        overflow: hidden;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .vital-value {
+        font-family: 'Space Grotesk', 'JetBrains Mono', monospace;
+        font-size: 17px;
+        font-weight: 800;
+        line-height: 1;
+        color: var(--sb-ink);
+        transition: color 220ms ease-out;
+      }
+      .vital-max {
+        align-self: flex-end;
+        margin-bottom: 2px;
+        font-size: 10px;
+        color: var(--sb-ink-dim2);
+      }
+      .bar-track {
+        position: relative;
+        height: 8px;
+        border-radius: 2px;
+        overflow: hidden;
+        border: 1px solid var(--sb-border-2);
+        background-color: #3a2c1e;
+        background-image: url('assets/patterns/rock_n1_calcaire_v0.png');
+        background-blend-mode: multiply;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+      }
+      .bar-track::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: repeating-linear-gradient(
+          90deg,
+          transparent 0 calc(10% - 1px),
+          rgba(5, 7, 11, 0.7) calc(10% - 1px) 10%
+        );
+        pointer-events: none;
+      }
+      .bar-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 100%;
+        background: var(--gold);
+        transition: width 220ms ease-out, background-color 220ms ease-out;
+      }
+      #health-fill {
+        background: #3ddc5c;
+      }
+      .level-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #level-value {
+        flex: none;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .xp-thread {
+        position: relative;
+        flex: 1;
+        height: 2px;
+        background: var(--sb-border-2);
+      }
+      #xp-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        background: var(--sb-ice);
+        transition: width 220ms ease-out;
+      }
+      #xp-label {
+        flex: none;
+        font-size: 10px;
+        color: var(--sb-ink-dim2);
+      }
+      .level-row .talents-btn {
+        margin-left: 0;
+      }
+
+      @keyframes dangerPulse {
+        0%, 100% {
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 0 rgba(230, 72, 60, 0);
+        }
+        50% {
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 12px 2px rgba(230, 72, 60, 0.9);
+        }
+      }
+      .bar-track.danger-pulse {
+        animation: dangerPulse 550ms ease-in-out 2;
+      }
+      @keyframes energyLowPulse {
+        0%, 100% {
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 0 rgba(255, 216, 74, 0);
+        }
+        50% {
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 8px 1px rgba(255, 216, 74, 0.55);
+        }
+      }
+      .bar-track.energy-low {
+        animation: energyLowPulse 1600ms ease-in-out infinite;
+      }
+      .bar-track.energy-critical {
+        animation: dangerPulse 800ms ease-in-out infinite;
+      }
+      .bar-track.energy-critical .bar-fill {
+        background-color: var(--health-low);
+      }
+
+      #gems-wallet {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+      }
+      /* 2026-10-11 — maquette "2a" : each gem count sits in its own
+         bordered card instead of floating loose, matching the item grid
+         below it. */
+      .gem-count {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        font-size: 13px;
+        font-weight: 800;
+        color: var(--sb-ink);
+        background: var(--sb-card);
+        border: 1px solid var(--sb-border-2);
+        border-radius: 8px;
+        padding: 6px 4px;
+      }
+      .gem-count img {
+        width: 18px;
+        height: 18px;
+        image-rendering: pixelated;
+      }
+      .gems-label {
+        justify-content: space-between;
+      }
+      .gems-total {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0;
+        color: var(--sb-ink);
+      }
+      .gems-total img {
+        width: 18px;
+        height: 18px;
+        image-rendering: pixelated;
+      }
+
+      /* Échelles : one slot per ladder the player can carry, filled or empty. */
+      .ladder-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 10px;
+      }
+      #ladder-belt {
+        display: flex;
+        gap: 4px;
+      }
+      .ladder-slot {
+        flex: 1;
+        max-width: 30px;
+        height: 30px;
+        background: var(--sb-card);
+        border: 1px solid var(--sb-border-2);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .ladder-slot img {
+        width: 30px;
+        height: 30px;
+        image-rendering: pixelated;
+      }
+      .ladder-slot.empty img {
+        visibility: hidden;
+      }
+      /* Pioche : the three chatons set at a Joaillier (world/sertissage.ts). */
+      #pioche-belt {
+        display: flex;
+        gap: 4px;
+      }
+      #pioche-belt .ladder-slot {
+        max-width: 38px;
+        border-color: var(--chaton, var(--sb-border-2));
+        box-shadow: inset 0 0 8px -2px var(--chaton, transparent);
+      }
+      #pioche-belt .ladder-slot img,
+      #pioche-belt .ladder-slot canvas {
+        width: 16px;
+        height: 16px;
+        image-rendering: pixelated;
+      }
+      /* A secret plan the chatons spell (SERT_PLANS): its name beside the label, a golden ring on the chatons. */
+      .pioche-plan {
+        margin-left: 6px;
+        color: #ffe28a;
+      }
+      #pioche-belt.plan .ladder-slot {
+        outline: 1px solid rgba(255, 226, 138, 0.55);
+        outline-offset: 1px;
+      }
+      .pioche-stones {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: none;
+        color: #c9c2d6;
+      }
+      #tc-ladder img {
+        width: 30px;
+        height: 30px;
+        image-rendering: pixelated;
+      }
+
+      /* Tutorial objective card — top of the game area, interface ice
+         accent (Compagnie procedure, not a lieu or a gem). */
+      #tutorial-coach {
+        position: absolute;
+        left: 50%;
+        top: 14px;
+        transform: translateX(-50%);
+        width: min(460px, calc(100% - 24px));
+        box-sizing: border-box;
+        background: rgba(10, 12, 18, 0.92);
+        border: 1px solid #161b26;
+        border-left: 3px solid var(--sb-ice);
+        border-radius: 8px;
+        padding: 8px 12px 10px;
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--sb-ink);
+        z-index: 6;
+        transition: opacity 180ms ease-out, transform 180ms ease-out;
+      }
+      #tutorial-coach[hidden] {
+        display: none;
+      }
+      #tutorial-coach.is-fresh {
+        opacity: 0;
+        transform: translate(-50%, -6px);
+      }
+      #tutorial-coach-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 4px;
+      }
+      #tutorial-coach-step {
+        font-family: 'Space Grotesk', 'JetBrains Mono', monospace;
+        font-weight: 700;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--sb-ice);
+      }
+      #tutorial-coach-skip {
+        font: inherit;
+        font-size: 10px;
+        color: var(--sb-ink-dim);
+        background: transparent;
+        border: 1px solid #1f2634;
+        border-radius: 5px;
+        padding: 2px 8px;
+        cursor: pointer;
+      }
+      #tutorial-coach-skip:hover {
+        color: var(--sb-ink);
+        border-color: var(--sb-ice);
+      }
+      #tutorial-coach-goal {
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      #tutorial-coach-goal kbd {
+        display: inline-block;
+        min-width: 1.4em;
+        text-align: center;
+        padding: 0 6px;
+        margin: 0 1px;
+        border-radius: 4px;
+        background: rgba(143, 214, 255, 0.12);
+        border: 1px solid rgba(143, 214, 255, 0.45);
+        font-family: inherit;
+        font-weight: 700;
+      }
+
+      #forge-overlay,
+      #shrine-overlay,
+      #levelup-overlay,
+      #registre-overlay,
+      #codex-overlay,
+      #settings-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 20;
+      }
+      /* The bare #forge-overlay rule above (ID selector) outranks the
+         browser's built-in [hidden] { display: none } rule (attribute
+         selector) in specificity, so without this the overlay stayed
+         visible at all times regardless of the hidden attribute JS
+         toggles in ForgeUI.open()/close() -- the modal showed immediately
+         on load and never actually closed. */
+      #forge-overlay[hidden],
+      #shrine-overlay[hidden],
+      #levelup-overlay[hidden],
+      #registre-overlay[hidden],
+      #codex-overlay[hidden],
+      #settings-overlay[hidden] {
+        display: none;
+      }
+
+      /* Same specificity fix as #forge-overlay above: the bare-ID rule
+         below would otherwise outrank [hidden] { display: none }. */
+      #context-lost-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(5, 4, 8, 0.88);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 30;
+        text-align: center;
+      }
+      #context-lost-overlay[hidden] {
+        display: none;
+      }
+      #context-lost-card {
+        max-width: 320px;
+        padding: 20px 24px;
+        background: #17121d;
+        border: 1px solid rgba(255, 106, 106, 0.4);
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+      #context-lost-title {
+        font-size: 16px;
+        font-weight: 800;
+        color: #ff8a8a;
+        margin-bottom: 8px;
+      }
+      #context-lost-desc {
+        font-size: 13px;
+        color: var(--ink-dim);
+        line-height: 1.5;
+      }
+      #context-lost-reload {
+        margin-top: 14px;
+        padding: 8px 18px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 216, 74, 0.4);
+        background: rgba(255, 216, 74, 0.12);
+        color: var(--gold);
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      #context-lost-reload[hidden] {
+        display: none;
+      }
+      /* The verb says what the key does, so the lone X doesn't read as a close button. */
+      .ladder-verb {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        letter-spacing: 0.06em;
+        color: #b9c3d6;
+      }
+      .ladder-verb kbd {
+        padding: 0 6px;
+        font: 700 12px/16px 'JetBrains Mono', monospace;
+        letter-spacing: 0;
+        color: #e7ecf3;
+        background: #1b2130;
+        border: 1px solid rgba(143, 214, 255, 0.75);
+        border-radius: 4px;
+        box-shadow: 0 2px 0 #0a0c12;
+      }
+      #forge-panel {
+        width: min(560px, 92vw);
+        max-height: 82vh;
+        overflow-y: auto;
+        background: #17121d;
+        border: 1px solid rgba(255, 216, 74, 0.3);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+      #forge-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      #forge-panel-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--gold);
+      }
+      #forge-close {
+        background: none;
+        border: none;
+        color: var(--ink-dim);
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px 8px;
+      }
+      #forge-close:hover {
+        color: var(--ink);
+      }
+      #forge-tabs {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: #0d1017;
+        border-bottom: 1px solid #161b26;
+        margin-bottom: 10px;
+      }
+      .forge-tab {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 8px 12px;
+        background: none;
+        color: var(--ink-dim);
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .forge-tab:hover {
+        color: var(--ink);
+      }
+      .forge-tab.on {
+        color: var(--ink);
+        border-bottom-color: var(--gold);
+      }
+      .forge-tab.on.meta {
+        border-bottom-color: #ffe28a;
+      }
+      .forge-tab-badge {
+        min-width: 18px;
+        padding: 1px 5px;
+        border-radius: 9px;
+        font-size: 12px;
+        text-align: center;
+        background: rgba(255, 216, 74, 0.18);
+        color: var(--gold);
+      }
+      .forge-tab-badge.none {
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ink-dim);
+      }
+      .forge-tab-key {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--ink-dim);
+      }
+      .forge-tab-key kbd {
+        font: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        padding: 0 5px;
+      }
+      #forge-tab-sub {
+        font-size: 13px;
+        color: var(--ink-dim);
+        margin-bottom: 12px;
+      }
+      .fusion-icon {
+        display: block;
+        flex-shrink: 0;
+        image-rendering: pixelated;
+        background-repeat: no-repeat;
+      }
+      .forge-recipe-icon {
+        grid-column: 1;
+        grid-row: 1 / span 4;
+        align-self: center;
+        filter: grayscale(0.85) brightness(0.7);
+      }
+      .forge-recipe.forged .forge-recipe-icon,
+      .forge-recipe.eligible .forge-recipe-icon {
+        filter: none;
+      }
+      .forge-recipe {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 4px 12px;
+        padding: 12px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 10px;
+      }
+      .forge-recipe.forged {
+        border-color: rgba(61, 220, 92, 0.4);
+        background: rgba(61, 220, 92, 0.06);
+      }
+      /* Meta-fusion recipes in the Forge modal (ForgeUI.ts's
+         'forge-recipe meta-forge-recipe' rows) get the same distinct amber
+         accent as the sidebar's .inv-meta-card -- restored here after the
+         2026-10-10 inventory-panel redesign retired the old sidebar
+         .meta-fusion-row rules these used to share a selector with. */
+      .meta-forge-recipe.eligible {
+        border-color: rgba(255, 226, 138, 0.55);
+        background: rgba(255, 226, 138, 0.1);
+      }
+      .meta-forge-recipe.forged {
+        border-color: rgba(255, 226, 138, 0.7);
+        background: rgba(255, 226, 138, 0.14);
+      }
+      .meta-forge-recipe.forged.needs-activation {
+        border-color: rgba(255, 226, 138, 0.35);
+        background: rgba(255, 226, 138, 0.05);
+      }
+      .forge-recipe-name {
+        font-weight: 800;
+        color: var(--ink);
+        grid-column: 2;
+      }
+      .forge-recipe-parents {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--ink-dim);
+        grid-column: 2;
+      }
+      .forge-recipe-desc {
+        font-size: 12px;
+        color: var(--ink-dim);
+        grid-column: 2;
+      }
+      .forge-recipe-cost {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--ink);
+        grid-column: 2;
+      }
+      .forge-recipe-cost img {
+        width: 18px;
+        height: 18px;
+        image-rendering: pixelated;
+      }
+      .forge-recipe-btn {
+        grid-column: 3;
+        grid-row: 1 / span 4;
+        align-self: center;
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 216, 74, 0.5);
+        background: rgba(255, 216, 74, 0.12);
+        color: var(--gold);
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .forge-recipe-btn:disabled {
+        border-color: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--ink-dim);
+        cursor: default;
+      }
+
+      /* Merchant modal — same structure/skeleton as #forge-overlay/
+         #forge-panel above, teal accent instead of gold. */
+      #merchant-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 20;
+      }
+      #merchant-overlay[hidden] {
+        display: none;
+      }
+      #merchant-panel {
+        width: min(560px, 92vw);
+        max-height: 82vh;
+        overflow-y: auto;
+        background: #17121d;
+        border: 1px solid rgba(58, 220, 182, 0.3);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+      #merchant-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      #merchant-panel-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--teal);
+      }
+      #merchant-close {
+        background: none;
+        border: none;
+        color: var(--ink-dim);
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px 8px;
+      }
+      #merchant-close:hover {
+        color: var(--ink);
+      }
+      #merchant-panel-sub {
+        font-size: 13px;
+        color: var(--ink-dim);
+        margin-bottom: 16px;
+      }
+      .merchant-offer {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4px 12px;
+        padding: 12px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 10px;
+      }
+      .merchant-offer.sold {
+        border-color: rgba(61, 220, 92, 0.4);
+        background: rgba(61, 220, 92, 0.06);
+      }
+      .merchant-offer.locked {
+        border-color: rgba(255, 255, 255, 0.06);
+        background: rgba(0, 0, 0, 0.12);
+        opacity: 0.72;
+      }
+      .merchant-offer-name {
+        font-weight: 800;
+        grid-column: 1;
+      }
+      .merchant-note {
+        font-size: 12px;
+        padding: 8px 12px;
+        margin-bottom: 10px;
+        border-left: 3px solid;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .merchant-offer.secret {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .merchant-offer-shelf {
+        grid-column: 1;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .merchant-offer.secret .merchant-offer-btn {
+        grid-row: 1 / span 4;
+      }
+      .merchant-offer-desc {
+        font-size: 12px;
+        color: var(--ink-dim);
+        grid-column: 1;
+      }
+      .merchant-offer-cost {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--ink);
+        grid-column: 1;
+      }
+      .merchant-offer-anycolor {
+        margin-left: 6px;
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--ink-dim);
+      }
+      .merchant-offer-cost img {
+        width: 18px;
+        height: 18px;
+        image-rendering: pixelated;
+      }
+      .merchant-offer-btn {
+        grid-column: 2;
+        grid-row: 1 / span 3;
+        align-self: center;
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: 1px solid rgba(58, 220, 182, 0.5);
+        background: rgba(58, 220, 182, 0.12);
+        color: var(--teal);
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .merchant-offer-btn:disabled {
+        border-color: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--ink-dim);
+        cursor: default;
+      }
+
+      /* Generic lieu-row family (Phase 39) — Healer/Lift share this
+         instead of .merchant-offer, since neither lists an ItemDef, just
+         a label/description/gem price/action button in the same layout. */
+      .poi-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4px 12px;
+        padding: 12px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 10px;
+      }
+      .poi-row.sold {
+        border-color: rgba(61, 220, 92, 0.4);
+        background: rgba(61, 220, 92, 0.06);
+      }
+      .poi-row-name {
+        font-weight: 800;
+        grid-column: 1;
+      }
+      .poi-row-desc {
+        font-size: 12px;
+        color: var(--ink-dim);
+        grid-column: 1;
+      }
+      .poi-row-cost {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--ink);
+        grid-column: 1;
+      }
+      .poi-row-btn {
+        grid-column: 2;
+        grid-row: 1 / span 3;
+        align-self: center;
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: 1px solid rgba(58, 220, 182, 0.5);
+        background: rgba(58, 220, 182, 0.12);
+        color: var(--teal);
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .poi-row-btn:disabled {
+        border-color: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--ink-dim);
+        cursor: default;
+      }
+
+      /* Healer/Lift modals — same skeleton as #merchant-overlay/#merchant-panel. */
+      #healer-overlay,
+      #lift-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 20;
+      }
+      #healer-overlay[hidden],
+      #lift-overlay[hidden] {
+        display: none;
+      }
+      #healer-panel,
+      #lift-panel {
+        width: min(560px, 92vw);
+        max-height: 82vh;
+        overflow-y: auto;
+        background: #17121d;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+      #healer-panel {
+        border: 1px solid rgba(110, 222, 138, 0.3);
+      }
+      #lift-panel {
+        border: 1px solid rgba(74, 163, 255, 0.3);
+      }
+      #healer-panel-header,
+      #lift-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      #healer-panel-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: #6ede8a;
+      }
+      #lift-panel-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: #4aa3ff;
+      }
+      #healer-close,
+      #lift-close {
+        background: none;
+        border: none;
+        color: var(--ink-dim);
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px 8px;
+      }
+      #healer-close:hover,
+      #lift-close:hover {
+        color: var(--ink);
+      }
+      #healer-panel-sub,
+      #lift-panel-sub {
+        font-size: 13px;
+        color: var(--ink-dim);
+        margin-bottom: 16px;
+      }
+
+      /* Character lore, docked beside CharacterSelectScene's stage (not a
+         modal: never dismissed, only hidden when the scene leaves). Hidden
+         on touch, where the stage claims the whole width. Every child of
+         #bio-content carries a --i index: CharacterBioUI rebuilds the
+         content on each carousel step, which replays the staggered rise. */
+      #bio-panel {
+        --bio-accent: #c9b6e0;
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(460px, 44%);
+        box-sizing: border-box;
+        overflow-y: auto;
+        padding: 56px 44px 64px;
+        background:
+          radial-gradient(120% 50% at 100% 0%, color-mix(in srgb, var(--bio-accent) 10%, transparent) 0%, transparent 70%),
+          #0a0c12;
+        border-left: 1px solid #161b26;
+        box-shadow: -24px 0 48px rgba(0, 0, 0, 0.45);
+        z-index: 5;
+        transition: background 0.4s ease;
+      }
+      #bio-panel[hidden] {
+        display: none;
+      }
+      body.touch-mode #bio-panel {
+        display: none;
+      }
+      /* Portrait window: stacked under the character, between its rows and
+         the footer (CharacterSelectScene sets --bio-top / --bio-bottom). The
+         stage already shows the camp and the name. */
+      body.bio-stacked #bio-panel {
+        top: var(--bio-top, 55%);
+        bottom: var(--bio-bottom, 150px);
+        left: 16px;
+        right: 16px;
+        width: auto;
+        padding: 16px 20px 20px;
+        border: 1px solid #161b26;
+        box-shadow: none;
+      }
+      body.bio-stacked .bio-camp,
+      body.bio-stacked .bio-name,
+      body.bio-stacked .bio-rule {
+        display: none;
+      }
+      body.bio-stacked .bio-power,
+      body.bio-stacked .bio-moves,
+      body.bio-stacked .bio-rep {
+        margin-bottom: 28px;
+      }
+      #bio-content > * {
+        opacity: 0;
+        animation: bio-rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+        animation-delay: calc(var(--i, 0) * 110ms);
+      }
+      @keyframes bio-rise {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #bio-content > * { animation: none; opacity: 1; }
+      }
+      .bio-camp {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--bio-accent);
+        opacity: 0.85;
+      }
+      .bio-name {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 34px;
+        font-weight: 800;
+        line-height: 1.1;
+        color: #f2f0f7;
+        margin: 10px 0 0;
+      }
+      .bio-rule {
+        height: 2px;
+        width: 56px;
+        margin: 22px 0 40px;
+        background: var(--bio-accent);
+        transform-origin: left;
+      }
+      #bio-content > .bio-rule {
+        animation-name: bio-rule-grow;
+        animation-duration: 0.7s;
+      }
+      @keyframes bio-rule-grow {
+        from { opacity: 0; transform: scaleX(0); }
+        to { opacity: 1; transform: scaleX(1); }
+      }
+      .bio-section {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #6b7280;
+        margin: 0 0 16px;
+      }
+      .bio-power {
+        border-left: 2px solid var(--bio-accent);
+        background: color-mix(in srgb, var(--bio-accent) 7%, transparent);
+        padding: 18px 20px;
+        margin: 0 0 48px;
+      }
+      /* the three moves and the résonances (planche 055) */
+      .bio-moves {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        margin: 0 0 48px;
+      }
+      .bio-move-name {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 15px;
+        font-weight: 700;
+        color: #eef2f7;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .bio-move-tag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        font-weight: 400;
+        color: var(--bio-accent);
+        white-space: nowrap;
+      }
+      .bio-move-text {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        line-height: 1.7;
+        color: #9aa3b5;
+        margin-top: 4px;
+      }
+      /* the sidebar's reputation rows (render/reputationRows.ts), with its palette */
+      .bio-rep {
+        --sb-card: #0f131c;
+        --sb-border-2: #1f2634;
+        --sb-ink: #e7ecf3;
+        --sb-ink-dim2: #6b7385;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        margin: 0 0 48px;
+      }
+      .bio-power-name {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--bio-accent);
+        margin-bottom: 10px;
+      }
+      .bio-power-note {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        line-height: 1.8;
+        color: #b9bfcc;
+      }
+      .bio-lede {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 1.6;
+        color: #ece8f4;
+        margin: 0 0 28px;
+      }
+      .bio-paragraph {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12.5px;
+        line-height: 1.95;
+        color: #a9afbd;
+        margin: 0 0 24px;
+      }
+      .bio-paragraph:last-child {
+        margin-bottom: 0;
+      }
+
+      #inv-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      /* 2026-10-10 — direct user request, maquette "HUD Inventaire.dc.html"
+         variante 2a ("Console de bord · objets", choisie par l'utilisateur) :
+         remplace les 3 sections empilées Inventaire/Fusions/Méta-fusions par
+         un seul panneau à onglets. */
+      /* 2026-10-11 — maquette "2a" : tabs now sit flush, a thin bottom
+         border that lights up teal for the active tab (maquette's
+         underline-style tabs) instead of a separate pill per tab. */
+      .inv-tabs {
+        display: flex;
+        gap: 2px;
+        border-bottom: 1px solid var(--sb-border-2);
+      }
+      /* Label stacked above its count (rather than side by side) -- three
+         tabs with "FUSIONS 1/14"-sized badges don't fit on one line in the
+         sidebar's real width. */
+      .inv-tab {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--sb-ink-dim2);
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        padding: 7px 2px;
+        cursor: pointer;
+        transition: border-color 200ms, color 200ms;
+      }
+      .inv-tab:hover {
+        color: var(--sb-ink-dim);
+      }
+      .inv-tab.active {
+        color: var(--sb-ink);
+        border-bottom-color: var(--sb-teal);
+      }
+      #rep-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .rep-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .rep-row .camp-emblem {
+        flex: none;
+      }
+      .rep-camp {
+        width: 84px;
+        flex: none;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--sb-ink);
+      }
+      .rep-notches {
+        display: flex;
+        gap: 2px;
+        flex: 1;
+      }
+      .rep-notch {
+        flex: 1;
+        height: 8px;
+        border: 1px solid var(--sb-border-2);
+        background: var(--sb-card);
+        transition: background-color 220ms ease-out, border-color 220ms ease-out;
+      }
+      .rep-notch.hostile {
+        background: #1a1012;
+      }
+      .rep-tier {
+        width: 50px;
+        flex: none;
+        text-align: right;
+        font-size: 10px;
+        color: var(--sb-ink-dim2);
+      }
+      .quest-section {
+        padding: 10px 2px 4px;
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--sb-label);
+      }
+      .quest-entry {
+        display: flex;
+        gap: 8px;
+        padding: 8px 2px;
+        border-bottom: 1px solid var(--sb-border);
+      }
+      .quest-entry-body {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .quest-entry-kind {
+        font-size: 9.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .quest-entry-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--sb-ink);
+      }
+      .quest-entry-line {
+        font-size: 11px;
+        color: var(--sb-ink-dim);
+      }
+      .quest-entry-deltas {
+        font-size: 10px;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .inv-tab-count {
+        font-size: 10px;
+        font-weight: 700;
+        opacity: 0.85;
+      }
+      .inv-tab-body {
+        display: flex;
+        flex-direction: column;
+      }
+      .inv-empty {
+        font-size: 12.5px;
+        color: var(--sb-ink-dim);
+        opacity: 0.7;
+        padding: 10px 2px;
+      }
+      .inv-objets-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 64px);
+        justify-content: space-between;
+        gap: 8px;
+        padding-top: 10px;
+      }
+      /* 2026-10-11 — direct user report ("L'inventaire a bien été changé
+         mais le style n'est pas appliqué") : .inv-slot had NO rules at all
+         since the 2026-10-10 tabbed-panel redesign landed — the item grid
+         was rendering as bare unstyled icons. Bordered card per maquette
+         "2a", border/glow colour keyed to the item's own rarity via
+         RARITY_TOOLTIP_ACCENT (same source the hover tooltip already used,
+         see Sidebar.ts), so the slot and its tooltip always agree. */
+      .inv-slot {
+        position: relative;
+        aspect-ratio: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--sb-card);
+        border: 1px solid var(--sb-border-3);
+        border-radius: 9px;
+        transition: border-color 150ms, box-shadow 150ms;
+      }
+      .inv-slot.found {
+        border-color: color-mix(in srgb, var(--rarity-accent, var(--sb-border-3)) 55%, var(--sb-border-3));
+      }
+      .inv-slot.found:hover {
+        border-color: var(--sb-ice);
+        box-shadow: 0 0 0 1px var(--sb-ice) inset;
+      }
+      .inv-icon {
+        image-rendering: pixelated;
+        background-repeat: no-repeat;
+      }
+      /* The lit strip of an item icon, played while its slot is hovered (render/itemArt/ItemStage.ts). */
+      @keyframes item-breathe {
+        to { background-position-x: calc(-1 * var(--strip-w)); }
+      }
+      .inv-slot:hover .inv-icon-lit {
+        animation: item-breathe var(--strip-s) steps(var(--strip-steps)) infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .inv-icon { animation: none !important; }
+      }
+      /* Fusion-possible dot — maquette's "peut fusionner avec un autre
+         objet en soute" hint, bottom-left, glowing teal. */
+      .inv-slot-fusion-dot {
+        position: absolute;
+        left: 4px;
+        bottom: 4px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--sb-teal);
+        box-shadow: 0 0 5px 1px rgba(43, 217, 200, 0.75);
+      }
+
+      /* Fusion/meta-fusion "tree" cards (Sidebar.ts), one per recipe, always
+         shown whether locked, eligible or forged (unlike the Objets tab,
+         which still only shows what's actually held this run — see
+         syncFusions()'s doc comment in Sidebar.ts for why fusions/meta-
+         fusions reverse that 2026-10-09 "Codex" choice). Status-only: forging
+         itself still only happens at a Forge tile via ForgeUI. */
+      .inv-fusion-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-top: 10px;
+      }
+      /* 2026-10-11 — base card tone brought in line with the rest of the
+         restyled panel (--sb-card/--sb-border-3); eligible/forged status
+         colours below (gold/green, meta's orange) are left as-is, same
+         semantic convention the maquette itself uses for status. */
+      .inv-fusion-card {
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: var(--sb-card);
+        border: 1px solid var(--sb-border-3);
+        font-family: 'JetBrains Mono', monospace;
+        transition: border-color 200ms, background 200ms;
+      }
+      .inv-fusion-card.eligible {
+        border-color: rgba(255, 216, 74, 0.5);
+        background: rgba(255, 216, 74, 0.08);
+      }
+      .inv-fusion-card.forged {
+        border-color: rgba(61, 220, 92, 0.45);
+        background: rgba(61, 220, 92, 0.08);
+      }
+
+      /* Meta-fusions reuse .inv-fusion-card's layout with the same distinct
+         amber accent the old .meta-fusion-row/.meta-forge-recipe rules used. */
+      .inv-meta-card.eligible {
+        border-color: rgba(255, 226, 138, 0.55);
+        background: rgba(255, 226, 138, 0.1);
+      }
+      .inv-meta-card.forged {
+        border-color: rgba(255, 226, 138, 0.7);
+        background: rgba(255, 226, 138, 0.14);
+      }
+      .inv-meta-card.forged.needs-activation {
+        border-color: rgba(255, 226, 138, 0.35);
+        background: rgba(255, 226, 138, 0.05);
+      }
+
+      .inv-fusion-top {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 6px;
+        align-items: center;
+      }
+      .inv-fusion-parents {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .inv-fusion-parent {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        opacity: 0.55;
+        min-width: 0;
+      }
+      .inv-fusion-parent.owned {
+        opacity: 1;
+      }
+      .inv-fusion-parent-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.22);
+        flex-shrink: 0;
+      }
+      .inv-fusion-parent.owned .inv-fusion-parent-dot {
+        background: var(--health-high);
+        box-shadow: 0 0 6px rgba(61, 220, 92, 0.6);
+      }
+      .inv-fusion-parent-name {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--ink);
+        line-height: 1.25;
+        min-width: 0;
+      }
+      /* Redundant with the parent dot's color (and the card's own status
+         chip below) once the layout has to fit the sidebar's real width —
+         dropped from view rather than fighting it for horizontal space. */
+      .inv-fusion-parent-state {
+        display: none;
+      }
+
+      /* The branch connecting both parents to the result: two CSS-drawn
+         L-shaped segments, each lit independently by its own parent's owned
+         state (maquette's "la branche s'allume quand le parent est en
+         soute"). */
+      .inv-fusion-branch {
+        position: relative;
+        width: 14px;
+        height: 34px;
+        flex-shrink: 0;
+      }
+      .inv-fusion-branch-line {
+        position: absolute;
+        left: 0;
+        width: 7px;
+        height: 15px;
+        border-style: solid;
+        border-width: 0;
+        border-color: #2a3547;
+        transition: border-color 200ms;
+      }
+      .inv-fusion-branch-line.top {
+        top: 2px;
+        border-top-width: 2px;
+        border-right-width: 2px;
+        border-top-right-radius: 6px;
+      }
+      .inv-fusion-branch-line.bottom {
+        bottom: 2px;
+        border-bottom-width: 2px;
+        border-right-width: 2px;
+        border-bottom-right-radius: 6px;
+      }
+      .inv-fusion-branch-line.lit {
+        border-color: var(--teal);
+      }
+      .inv-meta-card .inv-fusion-branch-line.lit {
+        border-color: #ff6b2c;
+      }
+
+      .inv-fusion-result {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        min-width: 50px;
+        max-width: 72px;
+      }
+      .inv-fusion-card:not(.forged):not(.eligible) .inv-fusion-result-icon {
+        filter: grayscale(0.85) brightness(0.7);
+      }
+      .inv-fusion-result-name {
+        font-size: 10.5px;
+        font-weight: 700;
+        color: var(--ink);
+        text-align: center;
+        line-height: 1.2;
+      }
+      /* Meta-fusion result stays a "?" until actually forged (maquette's
+         "Résultat révélé à la première fusion"). */
+      .inv-fusion-result-unknown {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--ink-dim);
+        opacity: 0.6;
+        width: 26px;
+        height: 26px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px dashed rgba(255, 255, 255, 0.25);
+        border-radius: 50%;
+      }
+
+      .inv-fusion-desc {
+        font-size: 11.5px;
+        color: var(--ink-dim);
+        margin-top: 8px;
+        line-height: 1.4;
+      }
+      .inv-fusion-cost {
+        font-size: 10.5px;
+        color: var(--ink-dim);
+        opacity: 0.8;
+        margin-top: 4px;
+      }
+      .inv-fusion-status {
+        display: inline-block;
+        margin-top: 8px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 3px 8px;
+        border-radius: 6px;
+      }
+      .inv-fusion-status.locked {
+        color: var(--ink-dim);
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .inv-fusion-status.ready {
+        color: #1a1510;
+        background: var(--gold);
+      }
+      .inv-fusion-status.forged {
+        color: #0c1a10;
+        background: var(--health-high);
+      }
+
+      /* Styled hover tooltip for inventory slots (Sidebar.ts), replacing the
+         plain native browser tooltip. A single shared element positioned in
+         JS with `position: fixed` (not a per-slot CSS-only tooltip) so it
+         floats over the game canvas instead of being clipped by #sidebar's
+         `overflow-y: auto` (which also clips the x-axis per the CSS spec).
+         --tt-accent/--tt-glow are set inline per rarity when shown. */
+      .item-tooltip {
+        position: fixed;
+        z-index: 50;
+        max-width: 240px;
+        padding: 10px 13px;
+        border-radius: 10px;
+        background: linear-gradient(
+          160deg,
+          rgba(33, 24, 16, 0.98) 0%,
+          rgba(16, 13, 10, 0.98) 100%
+        );
+        border: 1px solid var(--tt-accent, rgba(255, 255, 255, 0.15));
+        box-shadow:
+          0 10px 28px rgba(0, 0, 0, 0.55),
+          0 0 18px var(--tt-glow, transparent);
+        pointer-events: none;
+        opacity: 0;
+        transform: translateX(-6px) scale(0.96);
+        transition: opacity 140ms ease, transform 140ms ease;
+      }
+      .item-tooltip.visible {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+      .item-tooltip-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 5px;
+      }
+      .item-tooltip-name {
+        font-weight: 800;
+        font-size: 14px;
+        color: var(--ink);
+      }
+      /* Was .item-tooltip-rarity — generalized in Phase 30 (fusion roster)
+         to a plain state badge shared by items (rarity) and fusions
+         (locked/prête/forgée), still driven by the same --tt-accent. */
+      .item-tooltip-badge {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+        color: var(--tt-accent, var(--ink-dim));
+        white-space: nowrap;
+      }
+      /* Optional line between the header and the description — a fusion's
+         "Objet1 + Objet2 · Coût : ..." line. Empty/absent for an item
+         tooltip (Sidebar.ts leaves the element blank and lets this rule
+         collapse it via :empty). */
+      .item-tooltip-meta {
+        font-size: 11px;
+        color: var(--tt-accent, var(--ink-dim));
+        margin-bottom: 6px;
+      }
+      .item-tooltip-meta:empty {
+        display: none;
+        margin-bottom: 0;
+      }
+      .item-tooltip-desc {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--ink-dim);
+        white-space: pre-line;
+      }
+
+      /* Phase 42 — Sanctuaire redesign: same #forge-panel skeleton, three
+         "pedestal" cards laid out side by side (stacking on narrow
+         windows via the flex-wrap) instead of a stacked offer list. */
+      #shrine-panel {
+        width: min(620px, 92vw);
+        max-height: 82vh;
+        overflow-y: auto;
+        background: #17121d;
+        border: 1px solid rgba(143, 216, 232, 0.35);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+      #shrine-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      #shrine-panel-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: #8fd8e8;
+      }
+      #shrine-close {
+        background: none;
+        border: none;
+        color: var(--ink-dim);
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px 8px;
+      }
+      #shrine-close:hover {
+        color: var(--ink);
+      }
+      #shrine-panel-sub {
+        font-size: 13px;
+        color: var(--ink-dim);
+        margin-bottom: 16px;
+      }
+      #shrine-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .shrine-pedestal {
+        flex: 1 1 160px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 14px 12px;
+        border-radius: 10px;
+        background: rgba(143, 216, 232, 0.06);
+        border: 1px solid rgba(143, 216, 232, 0.25);
+        text-align: center;
+      }
+      .shrine-pedestal-name {
+        font-weight: 800;
+        font-size: 13px;
+      }
+      .shrine-pedestal-desc {
+        font-size: 11px;
+        color: var(--ink-dim);
+        flex: 1;
+      }
+      .shrine-pedestal-btn {
+        margin-top: 4px;
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: 1px solid rgba(143, 216, 232, 0.5);
+        background: rgba(143, 216, 232, 0.14);
+        color: #8fd8e8;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .shrine-pedestal-btn:hover {
+        background: rgba(143, 216, 232, 0.24);
+      }
+      .shrine-reroll-btn {
+        flex: 1 1 100%;
+        padding: 7px 12px;
+        border-radius: 6px;
+        border: 1px dashed rgba(143, 216, 232, 0.35);
+        background: transparent;
+        color: var(--ink-dim);
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .shrine-reroll-btn:hover:not(:disabled) {
+        color: #8fd8e8;
+        border-color: rgba(143, 216, 232, 0.6);
+      }
+      .shrine-reroll-btn:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      /* Keyboard highlight of the village panels (render/MenuCursor.ts PanelKeys). */
+      .forge-recipe-btn.kbd-selected,
+      .merchant-offer-btn.kbd-selected,
+      .poi-row-btn.kbd-selected,
+      .shrine-pedestal-btn.kbd-selected,
+      .shrine-reroll-btn.kbd-selected {
+        box-shadow: 0 0 0 2px #dbe6f2;
+      }
+
+      /* Registre de dotation (render/RegistreUI.ts) — UI-01 blue-black. */
+      #registre-panel {
+        width: min(540px, 96vw);
+        height: min(900px, 92vh);
+        display: flex;
+        flex-direction: column;
+        background: #0a0c12;
+        border: 1px solid #161b26;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        overflow: hidden;
+        animation: registre-in 160ms ease-out;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        color: #e7ecf3;
+      }
+      @keyframes registre-in {
+        from { opacity: 0; transform: translateY(8px); }
+      }
+      #registre-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px 10px;
+      }
+      #registre-title {
+        flex: 1;
+        font-family: 'Space Grotesk', sans-serif;
+        font-weight: 800;
+        font-size: 20px;
+      }
+      #registre-balance {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .registre-stamp {
+        image-rendering: pixelated;
+        flex: none;
+      }
+      .registre-balance-value {
+        font-family: 'Space Grotesk', sans-serif;
+        font-weight: 800;
+        font-size: 22px;
+        line-height: 1;
+      }
+      .registre-balance-value small {
+        display: block;
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 400;
+        font-size: 10px;
+        color: #9aa3b5;
+      }
+      #registre-close {
+        background: none;
+        border: none;
+        color: #9aa3b5;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px 8px;
+      }
+      #registre-close:hover {
+        color: #e7ecf3;
+      }
+      #registre-tabs,
+      .registre-branches {
+        display: flex;
+        gap: 4px;
+        border-bottom: 1px solid #161b26;
+      }
+      #registre-tabs {
+        padding: 0 12px;
+      }
+      .registre-branches {
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+      }
+      .registre-tab {
+        font: inherit;
+        font-size: 12px;
+        padding: 6px 10px;
+        background: none;
+        color: #9aa3b5;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .registre-tab.on {
+        color: #e7ecf3;
+        border-bottom-color: #2bd9c8;
+      }
+      #registre-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px 12px;
+      }
+      .registre-icon {
+        flex: none;
+        image-rendering: pixelated;
+        background-repeat: no-repeat;
+      }
+      .registre-tier {
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 700;
+        margin: 12px 0 6px;
+      }
+      .registre-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .registre-chip {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 10px;
+        padding-right: 6px;
+        border: 1px solid #161b26;
+        border-radius: 99px;
+        color: #9aa3b5;
+      }
+      .registre-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .registre-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: #0f131c;
+        border: 1px solid #161b26;
+        cursor: pointer;
+      }
+      .registre-row.selected {
+        border-color: #e7ecf3;
+      }
+      .registre-row-text {
+        flex: 1;
+        min-width: 0;
+        font-size: 11px;
+        color: #9aa3b5;
+        line-height: 1.4;
+      }
+      .registre-row-text b {
+        display: block;
+        color: #e7ecf3;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 13px;
+      }
+      .registre-node {
+        position: relative;
+        flex: none;
+        border-radius: 6px;
+        background: #0f131c;
+        box-shadow: inset 0 0 0 2px var(--rarity);
+      }
+      .registre-node .registre-icon {
+        display: block;
+      }
+      .registre-node.acquired {
+        background: color-mix(in srgb, var(--rarity) 18%, #0f131c);
+      }
+      .registre-node.acquired::after {
+        content: '';
+        position: absolute;
+        right: 3px;
+        bottom: 3px;
+        width: 8px;
+        height: 8px;
+        background: #2bd9c8;
+        clip-path: polygon(0 50%, 35% 85%, 100% 10%, 100% 35%, 35% 100%, 0 70%);
+      }
+      .registre-node.tooExpensive .registre-icon {
+        opacity: 0.6;
+      }
+      .registre-node.sealed {
+        box-shadow: inset 0 0 0 1px #161b26;
+      }
+      .registre-node.sealed .registre-icon {
+        filter: brightness(0);
+        opacity: 0.8;
+      }
+      .registre-cost {
+        position: absolute;
+        left: 3px;
+        top: 2px;
+        font-size: 10px;
+        font-weight: 700;
+        text-shadow: 0 1px 0 #000, 0 0 2px #000;
+      }
+      #registre-sheet {
+        border-top: 1px solid #161b26;
+        background: #0f131c;
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      #registre-sheet[hidden] {
+        display: none;
+      }
+      .registre-sheet-top {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .registre-sheet-name {
+        font-family: 'Space Grotesk', sans-serif;
+        font-weight: 800;
+        font-size: 16px;
+      }
+      .registre-sheet-rarity {
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+      .registre-buy {
+        font: inherit;
+        font-weight: 700;
+        font-size: 13px;
+        border-radius: 8px;
+        padding: 8px 12px;
+        border: 1px solid #161b26;
+        background: #161b26;
+        color: #9aa3b5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .registre-buy.go {
+        background: #2bd9c8;
+        border-color: #2bd9c8;
+        color: #0a0c12;
+        cursor: pointer;
+      }
+      .registre-buy.go .registre-stamp {
+        filter: invert(1);
+      }
+      .registre-why {
+        font-size: 11px;
+        color: #56607a;
+        text-align: center;
+      }
+      .registre-service-summary {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: #9aa3b5;
+        padding-bottom: 10px;
+      }
+      .registre-service {
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #0f131c;
+        border: 1px solid #161b26;
+        margin-bottom: 6px;
+        font-size: 11px;
+      }
+      .registre-service-top,
+      .registre-service-foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+      .registre-service-top b {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 13px;
+      }
+      .registre-service-foot {
+        color: #9aa3b5;
+      }
+      .registre-pips {
+        display: flex;
+        gap: 3px;
+      }
+      .registre-pip {
+        width: 18px;
+        height: 6px;
+        border-radius: 1px;
+        background: #161b26;
+      }
+      .registre-pip.on {
+        background: #2bd9c8;
+      }
+      .registre-track {
+        height: 4px;
+        background: #161b26;
+        border-radius: 2px;
+        margin: 6px 0 2px;
+        overflow: hidden;
+      }
+      .registre-fill {
+        height: 100%;
+        background: #2bd9c8;
+      }
+      /* Carnet du héros (planche 086): the count of pages the hero has not
+         written out yet, in the paper of the carnet. */
+      #carnet-open {
+        position: relative;
+        background: var(--sb-card);
+        border: 1px solid var(--sb-border-3);
+        border-radius: 8px;
+        color: #d8cdb0;
+        line-height: 0;
+        padding: 3px 5px;
+        cursor: pointer;
+        transition: border-color 150ms;
+      }
+      #carnet-open:hover {
+        border-color: #d8cdb0;
+      }
+      #carnet-open[data-unread]:not([data-unread=''])::after {
+        content: attr(data-unread);
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        min-width: 14px;
+        padding: 0 3px;
+        box-sizing: border-box;
+        font: 700 10px/14px 'JetBrains Mono', ui-monospace, monospace;
+        color: #2a2216;
+        background: #d8cdb0;
+        border: 1px solid #05070b;
+      }
+      #codex-open {
+        background: var(--sb-card);
+        border: 1px solid var(--sb-border-3);
+        border-radius: 8px;
+        color: #c9b6e0;
+        line-height: 0;
+        padding: 3px 5px;
+        cursor: pointer;
+        transition: border-color 150ms;
+      }
+      #codex-open:hover {
+        border-color: #c9b6e0;
+      }
+      #sidebar-title-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      /* Codex (design board 027-codex, « bannière »): a paper window in the
+         lore lavender — the chosen entry staged on top, its category's list
+         below. */
+      #codex-panel {
+        width: min(540px, 96vw);
+        height: min(900px, 92vh);
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        background: #0a0c12;
+        background-clip: padding-box;
+        border: 16px solid transparent;
+        image-rendering: pixelated;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        animation: registre-in 160ms ease-out;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        color: #e7ecf3;
+      }
+      #codex-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px 8px;
+      }
+      #codex-header svg {
+        color: #c9b6e0;
+        flex: none;
+      }
+      #codex-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-weight: 800;
+        font-size: 20px;
+        color: #c9b6e0;
+      }
+      #codex-total {
+        flex: 1;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #9aa3b5;
+      }
+      #codex-close {
+        background: none;
+        border: none;
+        color: #9aa3b5;
+        line-height: 0;
+        cursor: pointer;
+        padding: 6px;
+      }
+      #codex-close:hover {
+        color: #e7ecf3;
+      }
+      /* Two even rows: CodexUI sets --codex-tab-cols to half the tabs, rounded up. */
+      #codex-tabs {
+        display: grid;
+        grid-template-columns: repeat(var(--codex-tab-cols, 5), 1fr);
+        gap: 2px;
+        padding: 0 8px;
+        border-bottom: 1px solid #161b26;
+      }
+      .codex-tab {
+        min-width: 0;
+        font: inherit;
+        font-size: 11px;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: #9aa3b5;
+        padding: 6px 2px 5px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+      }
+      .codex-tab small {
+        font-size: 9px;
+        color: #56607a;
+      }
+      .codex-tab.on {
+        color: #e7ecf3;
+        border-bottom-color: #c9b6e0;
+      }
+      .codex-tab.on small {
+        color: #c9b6e0;
+      }
+      .codex-tab-bar {
+        display: block;
+        width: 100%;
+        height: 2px;
+        background: #161b26;
+      }
+      .codex-tab-bar i {
+        display: block;
+        height: 100%;
+        background: #c9b6e0;
+        opacity: 0.6;
+      }
+      .codex-pixel {
+        image-rendering: pixelated;
+        display: block;
+      }
+      #codex-banner {
+        position: relative;
+        flex: none;
+        height: 180px;
+        margin: 8px 10px 0;
+        border-radius: 6px;
+        overflow: hidden;
+        background: #050608 center bottom / 512px 224px no-repeat;
+        box-shadow: inset 0 0 0 1px #161b26;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .codex-banner-glow {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at 50% 60%, color-mix(in srgb, var(--tone) 28%, transparent), transparent 55%);
+      }
+      .codex-banner-icon {
+        position: relative;
+      }
+      .codex-banner-creature {
+        position: absolute;
+      }
+      .codex-banner-village {
+        width: 508px;
+        height: 240px;
+        flex: none;
+        margin-top: -30px;
+      }
+      #codex-banner.locked .codex-pixel {
+        filter: brightness(0);
+      }
+      #codex-desc {
+        flex: none;
+        margin: 8px 12px 4px;
+        min-height: 72px;
+        max-height: 150px;
+        overflow-y: auto;
+        font-size: 11px;
+        line-height: 1.5;
+        color: #9aa3b5;
+      }
+      #codex-desc .codex-name {
+        font-size: 16px;
+      }
+      .codex-quote {
+        font-style: italic;
+        margin-top: 4px;
+      }
+      .codex-lore {
+        font-style: italic;
+        margin-top: 6px;
+        color: #c9b6e0;
+      }
+      #codex-body {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 6px 10px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        --scroll-bg: #0a0c12;
+      }
+      .codex-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 8px 6px 6px;
+        border-radius: 8px;
+        background: #0f131c;
+        border: 1px solid #161b26;
+        cursor: pointer;
+      }
+      .codex-row.selected {
+        border-color: #c9b6e0;
+      }
+      .codex-slot {
+        width: 64px;
+        height: 64px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        background: #0f131c;
+        box-shadow: inset 0 0 0 2px var(--tone, #161b26);
+        overflow: hidden;
+      }
+      .codex-slot.locked {
+        box-shadow: inset 0 0 0 1px #161b26;
+      }
+      .codex-slot.locked .codex-pixel {
+        filter: brightness(0);
+        opacity: 0.85;
+      }
+      .codex-text {
+        flex: 1;
+        min-width: 0;
+      }
+      .codex-name {
+        font-family: 'Space Grotesk', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        color: #e7ecf3;
+      }
+      .codex-row.locked .codex-name,
+      #codex-banner.locked + #codex-desc .codex-name {
+        color: #56607a;
+      }
+      .codex-meta {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin: 1px 0 3px;
+      }
+      #codex-footer {
+        flex: none;
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        padding: 6px 12px 8px;
+        border-top: 1px solid #161b26;
+        font-size: 10px;
+        color: #56607a;
+      }
+      #codex-footer kbd {
+        font: inherit;
+        color: #9aa3b5;
+        border: 1px solid #161b26;
+        border-radius: 3px;
+        padding: 0 4px;
+      }
+
+      /* Paramètres — volumes, progression totale, resets. Interface
+         register (teal/ice on the bluish black, moodboard UI-01). */
+      #settings-open {
+        background: #0f131c;
+        border: 1px solid #232a38;
+        border-radius: 8px;
+        color: #e7ecf3;
+        line-height: 0;
+        padding: 6px 7px;
+        cursor: pointer;
+        transition: border-color 150ms, color 150ms;
+      }
+      #settings-open:hover {
+        border-color: #8fd6ff;
+        color: #8fd6ff;
+      }
+      #settings-panel {
+        width: min(460px, 92vw);
+        max-height: 86vh;
+        overflow-y: auto;
+        background: #0a0c12;
+        border: 1px solid #161b26;
+        border-top: 2px solid #2bd9c8;
+        border-radius: 12px;
+        padding: 18px 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        color: #e7ecf3;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 12px;
+        animation: settings-in 160ms ease-out;
+      }
+      @keyframes settings-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: none; }
+      }
+      #settings-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      #settings-title {
+        font-family: 'Space Grotesk', system-ui, sans-serif;
+        font-size: 20px;
+        font-weight: 800;
+        color: #e7ecf3;
+      }
+      #settings-close {
+        background: none;
+        border: none;
+        color: #9aa3b5;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px 8px;
+      }
+      #settings-close:hover {
+        color: #e7ecf3;
+      }
+      .settings-section-title {
+        font-family: 'Space Grotesk', system-ui, sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #2bd9c8;
+        margin: 18px 0 8px;
+      }
+      .settings-slider {
+        display: grid;
+        grid-template-columns: 9.5em 1fr 3.2em;
+        align-items: center;
+        gap: 10px;
+        background: #0f131c;
+        border: 1px solid #161b26;
+        border-radius: 8px;
+        padding: 8px 10px;
+        margin-bottom: 6px;
+      }
+      .settings-toggle {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 10px;
+        align-items: center;
+        background: #0f131c;
+        border: 1px solid #161b26;
+        border-radius: 8px;
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        cursor: pointer;
+      }
+      .settings-toggle input {
+        accent-color: #2bd9c8;
+        margin: 0;
+      }
+      .settings-toggle-desc {
+        grid-column: 2;
+        color: #9aa3b5;
+        font-size: 11px;
+      }
+      .settings-choice {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 10px;
+        row-gap: 6px;
+        align-items: center;
+        background: #0f131c;
+        border: 1px solid #161b26;
+        border-radius: 8px;
+        padding: 8px 10px;
+        margin-bottom: 6px;
+      }
+      .settings-choice .settings-toggle-desc {
+        grid-column: 1 / -1;
+      }
+      .settings-segments {
+        display: flex;
+        justify-self: end;
+        border: 1px solid #232a38;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .settings-segments button {
+        background: none;
+        border: none;
+        border-left: 1px solid #232a38;
+        color: #9aa3b5;
+        font: inherit;
+        padding: 4px 9px;
+        cursor: pointer;
+      }
+      .settings-segments button:first-child {
+        border-left: none;
+      }
+      .settings-segments button:hover {
+        color: #e7ecf3;
+      }
+      .settings-segments button[aria-checked='true'] {
+        background: #12312f;
+        color: #2bd9c8;
+      }
+      .settings-slider input {
+        width: 100%;
+        accent-color: #2bd9c8;
+      }
+      .settings-slider-value {
+        text-align: right;
+        color: #8fd6ff;
+      }
+      #settings-progress-head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      #settings-progress-percent {
+        font-family: 'Space Grotesk', system-ui, sans-serif;
+        font-size: 30px;
+        font-weight: 800;
+        color: #8fd6ff;
+      }
+      .settings-progress-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4px 10px;
+        align-items: center;
+        background: #0f131c;
+        border: 1px solid #161b26;
+        border-radius: 8px;
+        padding: 7px 10px;
+        margin-bottom: 6px;
+      }
+      .settings-progress-track {
+        grid-column: 1 / -1;
+        height: 5px;
+        border-radius: 3px;
+        background: #161b26;
+        overflow: hidden;
+      }
+      .settings-progress-fill {
+        height: 100%;
+        background: #2bd9c8;
+      }
+      .settings-progress-count {
+        color: #8fd6ff;
+      }
+      #settings-progress-stats {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 4px 12px;
+        color: #9aa3b5;
+        margin-top: 8px;
+      }
+      #settings-progress-stats b {
+        color: #e7ecf3;
+        font-weight: 500;
+      }
+      .settings-action {
+        margin-bottom: 10px;
+      }
+      .settings-danger {
+        width: 100%;
+        font: inherit;
+        font-weight: 700;
+        color: #e7ecf3;
+        background: #0f131c;
+        border: 1px solid #232a38;
+        border-radius: 8px;
+        padding: 9px 10px;
+        cursor: pointer;
+        transition: border-color 150ms, background 150ms;
+      }
+      .settings-danger:hover {
+        border-color: #e6483c;
+      }
+      .settings-danger.confirming {
+        background: #3a1512;
+        border-color: #e6483c;
+      }
+      .settings-action-desc {
+        color: #6b7385;
+        font-size: 11px;
+        margin-top: 4px;
+      }
+      .settings-action-desc.confirming {
+        color: #ff9b8f;
+      }
+      #settings-footer {
+        margin-top: 14px;
+        color: #6b7385;
+        font-size: 11px;
+        text-align: right;
+      }
+      #settings-footer kbd {
+        font-family: inherit;
+        font-size: 10px;
+        color: #e7ecf3;
+        background: #1b2130;
+        border: 1px solid rgba(143, 214, 255, 0.6);
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 0 5px;
+      }
+
+      /* Narrow window fallback (this is a PC-first layout, but a phone-width
+         session shouldn't be unusable): stack the sidebar above the game
+         instead of squeezing it into a sliver on the left. */
+      @media (max-width: 700px) {
+        #app {
+          flex-direction: column;
+        }
+        #sidebar {
+          width: 100%;
+          max-width: none;
+          min-width: 0;
+          height: auto;
+          max-height: 40vh;
+          border-right: none;
+          border-bottom: 2px solid rgba(255, 216, 74, 0.22);
+        }
+        #game {
+          height: 60vh;
+        }
+      }
+
+      /* 2026-10-11 — direct user request: "Penses aussi à faire le jeu
+         responsive pour pouvoir y jouer sur mobile". The @media fallback
+         above only ever resized the *layout* for a narrow window -- it
+         never gave a touch player any way to move/dig/interact at all
+         (the game is keyboard-only otherwise). Three independent pieces,
+         all gated on isTouchCapable() (render/TouchControls.ts) via the
+         body.touch-mode class main.ts sets once at startup, so a desktop
+         mouse/keyboard session is completely unaffected:
+           1) stop the mobile browser chrome itself from fighting the
+              game (pinch-zoom, rubber-band overscroll on iOS Safari);
+           2) turn the sidebar into an on-demand overlay drawer instead of
+              a permanent slice of a small phone screen (toggled by the
+              new #sidebar-toggle button), so #game gets the full
+              viewport;
+           3) a touch D-pad + 3 action buttons (creuser/interagir/
+              capacité) overlaid on the canvas, mirroring the
+              LEFT/RIGHT/DOWN/UP/SPACE/ENTER/E keyboard handlers in
+              GameScene.ts 1:1 -- see setupTouchControls() there. */
+      html, body {
+        touch-action: none;
+        overscroll-behavior: none;
+      }
+
+      #sidebar-toggle {
+        display: none;
+        position: fixed;
+        top: calc(10px + env(safe-area-inset-top));
+        left: calc(10px + env(safe-area-inset-left));
+        z-index: 60;
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(12, 10, 8, 0.82);
+        color: var(--ink);
+        font-size: 20px;
+        line-height: 1;
+        cursor: pointer;
+        touch-action: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+      body.touch-mode #tutorial-coach {
+        top: calc(62px + env(safe-area-inset-top));
+      }
+
+      body.touch-mode #sidebar-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Taking #sidebar out of flow (position: fixed) is also what lets
+         #game (flex: 1 in the row layout above, or the sole remaining
+         flex item once the column layout below kicks in) grow to fill
+         the space the sidebar used to permanently occupy -- the #game
+         height override just below is the one property the <= 700px
+         fallback above (height: 60vh) would otherwise still win on, since
+         it targets #game directly rather than through the drawer. */
+      body.touch-mode #sidebar {
+        position: fixed;
+        inset: 0;
+        z-index: 55;
+        width: min(86vw, 420px);
+        max-width: none;
+        min-width: 0;
+        height: 100%;
+        max-height: none;
+        transform: translateX(-100%);
+        transition: transform 220ms ease;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
+      }
+      body.touch-mode #sidebar.open {
+        transform: translateX(0);
+      }
+      body.touch-mode #game {
+        height: 100%;
+      }
+      /* 2026-10-11 -- #sidebar-toggle is position:fixed at 10px/10px,
+         z-index 60, always above the drawer (z-index 55) that slides in
+         under it -- without this, the drawer's own title row (padding-left
+         18px) starts well inside the 54px the button's own box occupies,
+         so "ROCK BOTTOM" rendered partly hidden behind the hamburger icon
+         the moment the touch-mode maquette restyle added a second line
+         (the "FOREUSE MK-I..." subtitle) that made the overlap obvious.
+         Reserves just enough left padding on the header for the button's
+         footprint, touch-mode only -- the desktop sidebar never shows the
+         toggle at all, so it keeps its normal padding. */
+      body.touch-mode #sidebar-header {
+        padding-left: 48px;
+      }
+
+      .touch-controls {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        pointer-events: none;
+      }
+      body.touch-mode .touch-controls.active {
+        display: block;
+      }
+      .tc-dpad,
+      .tc-actions {
+        position: absolute;
+        bottom: calc(18px + env(safe-area-inset-bottom));
+        pointer-events: auto;
+      }
+      .tc-dpad {
+        left: calc(18px + env(safe-area-inset-left));
+        display: grid;
+        grid-template-columns: repeat(3, 54px);
+        grid-template-rows: repeat(2, 54px);
+        gap: 8px;
+      }
+      .tc-actions {
+        right: calc(18px + env(safe-area-inset-right));
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .tc-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(12, 10, 8, 0.55);
+        color: var(--ink);
+        font-size: 20px;
+        touch-action: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .tc-btn:active,
+      .tc-btn.pressed {
+        background: rgba(255, 216, 74, 0.3);
+        border-color: rgba(255, 216, 74, 0.65);
+      }
+      #tc-up { grid-column: 2; grid-row: 1; }
+      #tc-left { grid-column: 1; grid-row: 2; }
+      #tc-down { grid-column: 2; grid-row: 2; }
+      #tc-right { grid-column: 3; grid-row: 2; }
+      #tc-dig {
+        width: 64px;
+        height: 64px;
+        font-size: 26px;
+      }
+
+      /* "Appuie sur Entrée" hints: the neutral toast's card (render/ToastLane.ts
+         plainChrome — square, opaque, accent bar, hard shadow) with the key cap
+         of render/keyCap.ts. The accent is the lieu's (COL-07), teal otherwise. */
+      #forge-hint, #merchant-hint, #savepoint-hint, #healer-hint, #lift-hint, #rift-hint, #shrine-hint, #lieu-hint, #npc-hint {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #0f131c;
+        border: 1px solid #2a3242;
+        box-shadow: inset 4px 0 0 var(--hint-accent), 0 3px 0 1px rgba(5, 7, 11, 0.7);
+        padding: 7px 14px 7px 18px;
+        font: 12px/18px 'JetBrains Mono', monospace;
+        color: #d4dae6;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 5;
+        animation: interact-hint-in 0.18s ease-out;
+      }
+      #forge-hint { bottom: 24px; --hint-accent: #d97d4f; }
+      #merchant-hint { bottom: 60px; --hint-accent: #c9a184; }
+      #savepoint-hint { bottom: 96px; --hint-accent: #8fd6ff; }
+      #healer-hint { bottom: 132px; --hint-accent: #7fbfa8; }
+      #lift-hint { bottom: 168px; --hint-accent: #9aa9bd; }
+      #rift-hint { bottom: 168px; --hint-accent: #e8eeff; }
+      #shrine-hint { bottom: 204px; --hint-accent: #c9b6e0; }
+      #lieu-hint { bottom: 60px; --hint-accent: #2bd9c8; }
+      #npc-hint { bottom: 60px; --hint-accent: #2bd9c8; }
+      :is(#forge-hint, #merchant-hint, #savepoint-hint, #healer-hint, #lift-hint, #rift-hint, #shrine-hint, #lieu-hint, #npc-hint) b {
+        font-family: 'Space Grotesk', system-ui, sans-serif;
+        font-weight: 700;
+        font-size: 13px;
+        color: var(--hint-accent);
+      }
+      :is(#forge-hint, #merchant-hint, #savepoint-hint, #healer-hint, #lift-hint, #rift-hint, #shrine-hint, #lieu-hint, #npc-hint) kbd {
+        display: inline-block;
+        margin: 0 2px;
+        padding: 0 6px;
+        font: 700 12px/16px 'JetBrains Mono', monospace;
+        color: #e7ecf3;
+        background: #1b2130;
+        border: 1px solid rgba(143, 214, 255, 0.75);
+        border-radius: 4px;
+        box-shadow: 0 2px 0 #0a0c12;
+      }
+      .hint-unpicked { display: none !important; }
+      body.in-battle :is(#forge-hint, #merchant-hint, #savepoint-hint, #healer-hint, #lift-hint, #rift-hint, #shrine-hint, #lieu-hint, #npc-hint) { display: none !important; }
+      .hint-more {
+        margin-left: 10px;
+        padding-left: 10px;
+        border-left: 1px solid #2a3242;
+        color: #8f96a4;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      @keyframes interact-hint-in {
+        from { opacity: 0; transform: translate(-50%, 6px); }
+        to { opacity: 1; transform: translate(-50%, 0); }
+      }
+
+      #tc-interact,
+      #tc-ability,
+      #tc-ladder {
+        width: 54px;
+        height: 54px;
+      }
+
+      /* Scrolling without a scrollbar (design board 014-barre-de-defilement,
+         option C): render/scrollCues.ts adds the edge fades and the arrow. */
+      * { scrollbar-width: none; }
+      *::-webkit-scrollbar { display: none; }
+      .scroll-fade {
+        position: sticky;
+        height: 28px;
+        flex: none;
+        pointer-events: none;
+        z-index: 4;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      .scroll-fade.top { background: linear-gradient(var(--scroll-bg), transparent); }
+      .scroll-fade.bottom { background: linear-gradient(transparent, var(--scroll-bg)); }
+      .scroll-fade.on { opacity: 1; }
+      .scroll-cue {
+        position: absolute;
+        left: 50%;
+        bottom: 4px;
+        width: 12px;
+        height: 6px;
+        margin-left: -6px;
+        background: var(--a, #2bd9c8);
+        mask-size: 100% 100%;
+        -webkit-mask-size: 100% 100%;
+        animation: scroll-cue-bob 1.4s ease-in-out infinite;
+      }
+      @keyframes scroll-cue-bob { 50% { transform: translateY(2px); } }
+      #sidebar { --scroll-bg: #08090d; }
+      #bio-panel { --scroll-bg: #0a0c12; }
+      #lieu-hint[hidden], #lieu-dialogue[hidden] { display: none; }
+      #lieu-dialogue {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 20;
+        background: rgba(0, 0, 0, 0.45);
+        font-family: 'Space Grotesk', system-ui, sans-serif;
+      }
+      .lieu-box {
+        width: min(480px, 92vw);
+        max-height: 86vh;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        --lieu-accent: var(--a);
+      }
+
+      /* Lieu windows (design board 013-fenetres-de-lieux, « bannière »):
+         render/LieuBanner.ts dresses the open lieu's panel — accent in --a,
+         frame material as border-image, idle animation class. */
+      .lieu-window {
+        background: #0d1017f2 !important;
+        border-width: 16px !important;
+        border-style: solid !important;
+        border-color: transparent !important;
+        border-radius: 0 !important;
+        padding: 0 0 14px !important;
+        image-rendering: pixelated;
+        box-shadow: 0 14px 40px #000c;
+        color: #dbe6f2;
+      }
+      .lieu-window > :not(.lieu-banner) { margin-left: 14px; margin-right: 14px; }
+      .lieu-window > [id$='-panel-header'],
+      .lieu-window > [id$='-panel-header'] + [id$='-panel-sub']:not(#shrine-panel-sub) { display: none !important; }
+      .lieu-window-in { animation: lieu-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
+      .lieu-window-in .lieu-vig canvas:first-child { animation: lieu-light 0.6s ease-out; }
+      @keyframes lieu-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+      @keyframes lieu-light { from { filter: brightness(0.15); } to { filter: none; } }
+      .lieu-shake { animation: lieu-shake 0.32s steps(2); }
+      @keyframes lieu-shake { 0% { transform: translate(2px, 0); } 25% { transform: translate(-2px, 1px); } 50% { transform: translate(2px, -1px); } 75% { transform: translate(-1px, 0); } 100% { transform: none; } }
+      .lieu-idle-braise { animation: lieu-braise 1.6s ease-in-out infinite; }
+      .lieu-idle-lueur { animation: lieu-lueur 3s ease-in-out infinite; }
+      .lieu-idle-onde { animation: lieu-onde 2.4s linear infinite; }
+      .lieu-idle-vacille { animation: lieu-vacille 2.2s steps(1) infinite; }
+      .lieu-idle-braise.lieu-window-in, .lieu-idle-lueur.lieu-window-in, .lieu-idle-onde.lieu-window-in, .lieu-idle-vacille.lieu-window-in { animation: lieu-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
+      @keyframes lieu-braise { 0%, 100% { box-shadow: 0 14px 40px #000c, 0 0 18px -6px var(--a); } 50% { box-shadow: 0 14px 40px #000c, 0 0 30px 0 var(--a); } }
+      @keyframes lieu-lueur { 0%, 100% { box-shadow: 0 14px 40px #000c, 0 0 0 0 var(--a); } 50% { box-shadow: 0 14px 40px #000c, 0 0 22px -4px var(--a); } }
+      @keyframes lieu-onde { 0% { box-shadow: 0 14px 40px #000c, 0 0 0 0 var(--a); } 100% { box-shadow: 0 14px 40px #000c, 0 0 0 14px transparent; } }
+      @keyframes lieu-vacille { 0%, 40%, 46%, 70% { box-shadow: 0 14px 40px #000c, 0 0 24px -4px var(--a); } 42%, 72% { box-shadow: 0 14px 40px #000c, 0 0 0 0 transparent; } }
+      .lieu-banner { position: relative; display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+      .lieu-vig { position: relative; height: 180px; overflow: hidden; background: #05070b; border-bottom: 1px solid color-mix(in srgb, var(--a) 40%, transparent); }
+      .lieu-vig canvas { position: absolute; left: 50%; top: -60px; max-width: none; image-rendering: pixelated; }
+      .lieu-banner-head { display: flex; align-items: baseline; gap: 10px; padding: 0 14px; }
+      .lieu-banner-who { font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--a); }
+      .lieu-banner-mode { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #6b7385; border: 1px solid #2e3a4e; border-radius: 3px; padding: 2px 6px; }
+      .lieu-banner-close { margin-left: auto; background: none; border: none; color: #6b7385; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; }
+      .lieu-banner-close:hover { color: #dbe6f2; }
+      .lieu-banner-line { padding: 0 14px; font-family: 'Space Grotesk', sans-serif; font-size: 14.5px; line-height: 1.55; min-height: 44px; text-wrap: pretty; }
+      .lieu-options { display: flex; flex-direction: column; gap: 4px; }
+      .lieu-option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-align: left;
+        padding: 7px 10px;
+        border-radius: 3px;
+        border: 1px solid #2e3a4e;
+        background: #141924;
+        color: #e7ecf3;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      .lieu-option.kbd-selected { border-color: var(--lieu-accent); background: #1a2130; }
+      .lieu-empty { font-family: 'Space Grotesk', sans-serif; color: #8e96a8; font-size: 11.5px; font-style: italic; padding: 6px 2px; }
+      .lieu-option-n { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--lieu-accent); }
+      .lieu-option-icon {
+        flex: none;
+        width: 30px;
+        height: 30px;
+        image-rendering: pixelated;
+        background-repeat: no-repeat;
+      }
+      /* 15×15 souvenir icons at ×2: a whole number of pixels, unlike 24. */
+      .lieu-option-icon.lieu-option-souvenir {
+        width: 30px;
+        height: 30px;
+      }
+      .lieu-option-label { font-weight: 700; flex: none; }
+      .lieu-option-sub { color: #8e96a8; font-size: 11.5px; min-width: 0; }
+      .lieu-option-rep { display: flex; flex-direction: column; gap: 1px; flex: none; margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap; text-align: right; }
+      .lieu-option-rep + .lieu-option-price { margin-left: 0; }
+      .lieu-option-price {
+        margin-left: auto;
+        flex: none;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11.5px;
+        color: #ffd89a;
+      }
+      body.sidebar-hidden #sidebar, body.sidebar-hidden #sidebar-toggle { display: none; }
+      body.touch-mode.in-battle #sidebar, body.touch-mode.in-battle #sidebar-toggle { display: none; }
+      #boot-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        padding: 0 24px;
+        background: #000;
+        color: var(--ink-dim);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 15px;
+        letter-spacing: 0.08em;
+        pointer-events: none;
+        transition: opacity 0.32s ease-out;
+      }
+      #boot-loading.done {
+        opacity: 0;
+      }
+      #boot-loading-brand {
+        font: 800 26px/1 'Space Grotesk', system-ui, sans-serif;
+        letter-spacing: 0.22em;
+        color: var(--ink);
+      }
+      #boot-loading-bar,
+      #boot-loading-meta,
+      #boot-loading-quip {
+        visibility: hidden;
+      }
+      #boot-loading.ready #boot-loading-bar,
+      #boot-loading.ready #boot-loading-meta,
+      #boot-loading.ready #boot-loading-quip {
+        visibility: visible;
+      }
+      /* A core sample: each cell is cut in the stratum it crosses, dark until the drill gets there. */
+      #boot-loading-bar {
+        display: flex;
+        gap: 2px;
+        padding: 3px;
+        width: min(336px, 86vw);
+        height: 18px;
+        box-sizing: border-box;
+        border: 2px solid #232a38;
+        background: #08090d;
+      }
+      #boot-loading-bar span {
+        flex: 1;
+        background: #161b26;
+      }
+      #boot-loading-bar span.on {
+        background: var(--strate);
+      }
+      #boot-loading-bar span.head {
+        background: var(--strate);
+        animation: boot-loading-head 0.5s steps(2) infinite;
+      }
+      @keyframes boot-loading-head {
+        0% { opacity: 0.25; }
+        100% { opacity: 0.9; }
+      }
+      #boot-loading-meta {
+        display: flex;
+        justify-content: space-between;
+        width: min(336px, 86vw);
+        margin-top: -6px;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+      #boot-loading-pct {
+        color: var(--ink);
+      }
+      #boot-loading-quip {
+        max-width: min(336px, 86vw);
+        min-height: 2.8em;
+        font-size: 13px;
+        line-height: 1.4;
+        letter-spacing: 0.02em;
+        text-align: center;
+        color: var(--ink-dim);
+        opacity: 0;
+        transform: translateY(3px);
+        transition: opacity 0.22s ease-out, transform 0.22s ease-out;
+      }
+      #boot-loading-quip.on {
+        opacity: 1;
+        transform: none;
+      }
+      .purchase-fx { position: fixed; left: 0; top: 0; z-index: 2000; pointer-events: none; }
+      .purchase-fx-flash { border: 2px solid; border-radius: 3px; box-sizing: border-box; }
+      .purchase-fx-cost { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; color: #ffd89a; text-shadow: 1px 1px 0 #000; white-space: nowrap; }
+      .purchase-fx-cost img { width: 14px; height: 14px; margin-left: 4px; vertical-align: -2px; image-rendering: pixelated; }
+      .purchase-fx-icon { width: 60px; height: 60px; image-rendering: pixelated; background-repeat: no-repeat; filter: drop-shadow(2px 2px 0 #000); }
+      .purchase-fx-spark { width: 4px; height: 4px; }
+      .purchase-bump { animation: purchase-bump 0.36s steps(3); }
+      @keyframes purchase-bump { 0% { filter: brightness(2.2); transform: scale(1.12); } 100% { filter: none; transform: none; } }
+      .lieu-option-price img { width: 14px; height: 14px; margin-left: 4px; vertical-align: -2px; image-rendering: pixelated; }
+      .lieu-result {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        color: var(--lieu-accent);
+        min-height: 14px;
+      }
+
+      /* PNJ des couches (PNJ des Couches.dc.html) — frame colours are set
+         per biome from render/npcArt.ts's NPC_FRAMES via CSS variables. */
+      #npc-hint[hidden], #npc-dialogue[hidden] { display: none; }
+      #npc-dialogue {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 0 14px 22px;
+        display: flex;
+        justify-content: center;
+        z-index: 20;
+        font-family: 'Space Grotesk', system-ui, sans-serif;
+      }
+      @keyframes npc-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+      @keyframes npc-blink { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0.12; } }
+      .npc-box {
+        position: relative;
+        width: 100%;
+        max-width: 620px;
+        outline-offset: 3px;
+        cursor: pointer;
+        user-select: none;
+        color: #dbe6f2;
+      }
+      .npc-box-in { animation: npc-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
+      .npc-inner {
+        position: absolute;
+        inset: 2px;
+        border: 1px solid var(--npc-inner);
+        border-radius: var(--npc-radius);
+        pointer-events: none;
+      }
+      .npc-corner {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        background: var(--npc-corner);
+        opacity: var(--npc-corner-op);
+      }
+      .npc-corner-tl { left: -2px; top: -2px; }
+      .npc-corner-tr { right: -2px; top: -2px; }
+      .npc-corner-bl { left: -2px; bottom: -2px; }
+      .npc-corner-br { right: -2px; bottom: -2px; }
+      .npc-head {
+        position: relative;
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        padding: 12px 16px 10px;
+        border-bottom: 1px solid var(--npc-inner);
+      }
+      .npc-face {
+        display: block;
+        width: 50px;
+        height: 50px;
+        image-rendering: pixelated;
+        border-radius: 3px;
+        background: #080a0f;
+        border: 1px solid var(--npc-inner);
+      }
+      .npc-row { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 12px 0 0 12px; }
+      .npc-col { flex: 1; min-width: 0; }
+      .npc-col .npc-head { padding: 2px 16px 10px 0; }
+      .npc-col .npc-text { padding: 10px 18px 10px 0; }
+      .npc-bust-frame {
+        flex: none;
+        padding: 3px;
+        line-height: 0;
+        background: #080a0f;
+        border: 1px solid var(--npc-inner);
+        border-radius: 3px;
+      }
+      .npc-bust { display: block; width: 128px; height: 144px; image-rendering: pixelated; }
+      .npc-names { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+      .npc-speaker {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--npc-accent);
+      }
+      .npc-title, .npc-foot-hint, .npc-trade-note {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        color: #6b7385;
+      }
+      .npc-mode {
+        margin-left: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        border: 1px solid;
+        border-radius: 3px;
+        padding: 3px 8px;
+      }
+      .npc-text {
+        position: relative;
+        padding: 14px 18px 10px;
+        min-height: 78px;
+        font-size: 15.5px;
+        line-height: 1.6;
+        text-wrap: pretty;
+      }
+      .npc-caret { color: var(--npc-accent); }
+      .line-emph-word { white-space: nowrap; }
+      .line-emph { display: inline-block; }
+      .npc-fx { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 2; }
+      .line-stamp {
+        position: absolute; right: 16px; padding: 3px 8px; border: 2px solid; background: #0a0c12;
+        font: 12px 'JetBrains Mono', monospace; letter-spacing: 0.12em; text-transform: uppercase;
+      }
+      .npc-bust-frame .npc-bust { transition: opacity 160ms, transform 160ms; }
+      .npc-bust-frame.npc-bust-swap .npc-bust { opacity: 0; transform: translateX(-8px); }
+      .npc-box.npc-hero-line .npc-speaker { color: var(--npc-hero-accent); }
+      .npc-choices { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 2px 18px 12px; }
+      .npc-choice {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        text-align: left;
+        background: #0b0d13;
+        border: 1px solid var(--npc-inner);
+        border-radius: 4px;
+        padding: 8px 12px;
+        cursor: pointer;
+        color: #dbe6f2;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 14px;
+      }
+      .npc-choice.kbd-selected { background: #141925; border-color: var(--npc-accent); }
+      .npc-choice-n { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--npc-accent); }
+      .npc-choice-tag.npc-choice-rep {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+        flex: none;
+        white-space: nowrap;
+        text-transform: none;
+        letter-spacing: 0.04em;
+      }
+      .npc-choice-tag {
+        margin-left: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9.5px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .npc-help, .lieu-help {
+        position: relative;
+        margin: 0 18px 12px;
+        padding: 7px 10px;
+        border-left: 2px solid var(--npc-accent);
+        background: #0b0d13;
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: #a9b3c4;
+        cursor: default;
+      }
+      .npc-help, .lieu-help { min-height: calc(4 * 1.45em + 14px); box-sizing: border-box; }
+      .npc-help.empty, .lieu-help.empty { visibility: hidden; }
+      .npc-help[hidden], .lieu-help[hidden] { display: none; }
+      .lieu-help { margin: 0; border-left-color: var(--lieu-accent); }
+      .npc-trade {
+        position: relative;
+        margin: 2px 18px 12px;
+        border: 1px solid #1f3b44;
+        border-radius: 6px;
+        background: #0a1116;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        cursor: default;
+      }
+      .npc-trade-row, .npc-trade-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .npc-trade-actions { gap: 8px; }
+      .npc-trade-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+      .npc-trade-label {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9.5px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #6b7385;
+      }
+      .npc-trade-arrow { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #2bd9c8; padding-top: 14px; }
+      .npc-trade-note { margin-left: auto; }
+      .npc-slots { display: flex; gap: 6px; flex-wrap: wrap; }
+      .npc-slot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 10px 5px 5px;
+        border: 1px solid #232a38;
+        border-radius: 4px;
+        background: #080a0f;
+      }
+      .npc-slot-missing { border-color: #4a2626; }
+      .npc-slot-icon { width: 40px; height: 40px; display: grid; place-items: center; }
+      .npc-gem-icon { display: block; width: 30px; height: 30px; image-rendering: pixelated; }
+      .npc-item-icon { width: 60px; height: 60px; image-rendering: pixelated; }
+      .npc-slot-icon.npc-clue-icon, .npc-slot-icon.npc-item-slot-icon { width: 60px; height: 60px; }
+      .npc-clue-icon canvas { width: 60px; height: 60px; image-rendering: pixelated; }
+      .npc-slot-text { display: flex; flex-direction: column; gap: 2px; }
+      .npc-slot-label { font-size: 12.5px; font-weight: 600; }
+      .npc-slot-sub { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6b7385; }
+      .npc-gift {
+        position: relative;
+        margin: 2px 18px 12px;
+        border: 1px solid #4a3418;
+        border-radius: 6px;
+        background: #140f09;
+        padding: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        cursor: default;
+      }
+      .npc-gift-label {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9.5px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #f2a03d;
+      }
+      .npc-btn {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        border-radius: 4px;
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+      .npc-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+      .npc-btn.kbd-selected { box-shadow: 0 0 0 2px #dbe6f2; }
+      .npc-btn-accept { color: var(--btn-color); background: #0d1a1e; border: 1px solid var(--btn-color); }
+      .npc-btn-refuse { color: #8e96a8; background: transparent; border: 1px solid #2a3547; }
+      .npc-btn-take { margin-left: auto; color: #f2a03d; background: #1a130b; border: 1px solid #f2a03d; }
+      .npc-gift .npc-btn-refuse { margin-left: auto; }
+      .npc-foot { position: relative; display: flex; align-items: center; gap: 12px; padding: 0 18px 12px; }
+      .npc-cue {
+        margin-left: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        color: var(--npc-accent);
+        animation: npc-blink 1.1s steps(1, end) infinite;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-sGMUuhY5.js"></script>
+  </head>
+  <body class="sidebar-hidden">
+    <div id="app">
+      <button id="sidebar-toggle" type="button" aria-label="Inventaire">☰</button>
+      <aside id="sidebar">
+        <div id="sidebar-header">
+          <div id="sidebar-title-row">
+            <div id="sidebar-title-brand">
+              <span id="sidebar-title-dot" aria-hidden="true"></span>
+              <div>
+                <div id="sidebar-title">ROCK BOTTOM</div>
+                <div id="sidebar-subtitle">FOREUSE MK-I &middot; EN LIGNE</div>
+              </div>
+            </div>
+            <div id="sidebar-title-actions">
+              <button id="carnet-open" type="button" aria-label="Carnet" title="Carnet de descente (touche J)" data-unread="">
+                <svg width="20" height="18" viewBox="0 0 10 9" shape-rendering="crispEdges" aria-hidden="true"><g fill="currentColor"><rect x="1" y="0" width="1" height="1" /><rect x="2" y="0" width="1" height="1" /><rect x="3" y="0" width="1" height="1" /><rect x="4" y="0" width="1" height="1" /><rect x="5" y="0" width="1" height="1" /><rect x="6" y="0" width="1" height="1" /><rect x="7" y="0" width="1" height="1" /><rect x="9" y="0" width="1" height="1" /><rect x="0" y="1" width="1" height="1" /><rect x="6" y="1" width="1" height="1" /><rect x="8" y="1" width="1" height="1" /><rect x="0" y="2" width="1" height="1" /><rect x="2" y="2" width="1" height="1" /><rect x="3" y="2" width="1" height="1" /><rect x="4" y="2" width="1" height="1" /><rect x="7" y="2" width="1" height="1" /><rect x="0" y="3" width="1" height="1" /><rect x="6" y="3" width="1" height="1" /><rect x="8" y="3" width="1" height="1" /><rect x="0" y="4" width="1" height="1" /><rect x="2" y="4" width="1" height="1" /><rect x="3" y="4" width="1" height="1" /><rect x="4" y="4" width="1" height="1" /><rect x="5" y="4" width="1" height="1" /><rect x="9" y="4" width="1" height="1" /><rect x="0" y="5" width="1" height="1" /><rect x="9" y="5" width="1" height="1" /><rect x="0" y="6" width="1" height="1" /><rect x="2" y="6" width="1" height="1" /><rect x="3" y="6" width="1" height="1" /><rect x="4" y="6" width="1" height="1" /><rect x="9" y="6" width="1" height="1" /><rect x="0" y="7" width="1" height="1" /><rect x="9" y="7" width="1" height="1" /><rect x="1" y="8" width="1" height="1" /><rect x="2" y="8" width="1" height="1" /><rect x="3" y="8" width="1" height="1" /><rect x="4" y="8" width="1" height="1" /><rect x="5" y="8" width="1" height="1" /><rect x="6" y="8" width="1" height="1" /><rect x="7" y="8" width="1" height="1" /><rect x="8" y="8" width="1" height="1" /></g></svg>
+              </button>
+              <button id="codex-open" type="button" aria-label="Codex" title="Codex (touche L)">
+                <svg width="22" height="16" viewBox="0 0 11 8" shape-rendering="crispEdges" aria-hidden="true"><g fill="currentColor"><rect x="1" y="0" width="1" height="1" /><rect x="2" y="0" width="1" height="1" /><rect x="3" y="0" width="1" height="1" /><rect x="7" y="0" width="1" height="1" /><rect x="8" y="0" width="1" height="1" /><rect x="9" y="0" width="1" height="1" /><rect x="0" y="1" width="1" height="1" /><rect x="4" y="1" width="1" height="1" /><rect x="6" y="1" width="1" height="1" /><rect x="10" y="1" width="1" height="1" /><rect x="0" y="2" width="1" height="1" /><rect x="2" y="2" width="1" height="1" /><rect x="4" y="2" width="1" height="1" /><rect x="6" y="2" width="1" height="1" /><rect x="8" y="2" width="1" height="1" /><rect x="10" y="2" width="1" height="1" /><rect x="0" y="3" width="1" height="1" /><rect x="4" y="3" width="1" height="1" /><rect x="6" y="3" width="1" height="1" /><rect x="10" y="3" width="1" height="1" /><rect x="0" y="4" width="1" height="1" /><rect x="2" y="4" width="1" height="1" /><rect x="4" y="4" width="1" height="1" /><rect x="6" y="4" width="1" height="1" /><rect x="8" y="4" width="1" height="1" /><rect x="10" y="4" width="1" height="1" /><rect x="0" y="5" width="1" height="1" /><rect x="4" y="5" width="1" height="1" /><rect x="6" y="5" width="1" height="1" /><rect x="10" y="5" width="1" height="1" /><rect x="1" y="6" width="1" height="1" /><rect x="2" y="6" width="1" height="1" /><rect x="3" y="6" width="1" height="1" /><rect x="4" y="6" width="1" height="1" /><rect x="5" y="6" width="1" height="1" /><rect x="6" y="6" width="1" height="1" /><rect x="7" y="6" width="1" height="1" /><rect x="8" y="6" width="1" height="1" /><rect x="9" y="6" width="1" height="1" /><rect x="5" y="7" width="1" height="1" /></g></svg>
+              </button>
+              <button id="registre-open" type="button" aria-label="Registre de dotation" title="Registre de dotation (touche R)">
+                <svg width="18" height="18" viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true">
+                  <g fill="currentColor"><rect x="2" y="0" width="1" height="1" /><rect x="3" y="0" width="1" height="1" /><rect x="4" y="0" width="1" height="1" /><rect x="5" y="0" width="1" height="1" /><rect x="6" y="0" width="1" height="1" /><rect x="1" y="1" width="1" height="1" /><rect x="7" y="1" width="1" height="1" /><rect x="0" y="2" width="1" height="1" /><rect x="3" y="2" width="1" height="1" /><rect x="4" y="2" width="1" height="1" /><rect x="5" y="2" width="1" height="1" /><rect x="8" y="2" width="1" height="1" /><rect x="0" y="3" width="1" height="1" /><rect x="3" y="3" width="1" height="1" /><rect x="6" y="3" width="1" height="1" /><rect x="8" y="3" width="1" height="1" /><rect x="0" y="4" width="1" height="1" /><rect x="3" y="4" width="1" height="1" /><rect x="4" y="4" width="1" height="1" /><rect x="5" y="4" width="1" height="1" /><rect x="8" y="4" width="1" height="1" /><rect x="0" y="5" width="1" height="1" /><rect x="3" y="5" width="1" height="1" /><rect x="5" y="5" width="1" height="1" /><rect x="8" y="5" width="1" height="1" /><rect x="0" y="6" width="1" height="1" /><rect x="3" y="6" width="1" height="1" /><rect x="6" y="6" width="1" height="1" /><rect x="8" y="6" width="1" height="1" /><rect x="1" y="7" width="1" height="1" /><rect x="7" y="7" width="1" height="1" /><rect x="2" y="8" width="1" height="1" /><rect x="3" y="8" width="1" height="1" /><rect x="4" y="8" width="1" height="1" /><rect x="5" y="8" width="1" height="1" /><rect x="6" y="8" width="1" height="1" /></g>
+                </svg>
+              </button>
+              <button id="settings-open" type="button" aria-label="Paramètres" title="Paramètres (touche Échap)">
+                <svg width="14" height="14" viewBox="0 0 7 7" shape-rendering="crispEdges" aria-hidden="true">
+                  <g fill="currentColor"><rect x="3" y="0" width="1" height="1" /><rect x="1" y="1" width="5" height="1" /><rect x="1" y="2" width="2" height="1" /><rect x="4" y="2" width="2" height="1" /><rect x="0" y="3" width="2" height="1" /><rect x="5" y="3" width="2" height="1" /><rect x="1" y="4" width="2" height="1" /><rect x="4" y="4" width="2" height="1" /><rect x="1" y="5" width="5" height="1" /><rect x="3" y="6" width="1" height="1" /></g>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="hero-card">
+            <div id="hero-face">
+              <div id="hero-face-badge"><canvas id="hero-face-canvas" width="128" height="144" aria-hidden="true"></canvas></div>
+              <div id="hero-face-cap"><span id="hero-face-name"></span><span id="hero-face-status"></span></div>
+            </div>
+            <div id="hero-card-info">
+              <div id="depth-row">
+                <span class="label">Profondeur</span>
+                <span id="depth-value">↓ 0</span>
+              </div>
+              <div id="biome-row">
+                <span class="label">Strate</span>
+                <span id="biome-value">—</span>
+              </div>
+              <div class="vital-row">
+                <div class="vital" title="Vie">
+                  <div class="vital-head"><img id="health-icon" class="ui-icon" data-ui-icon="coeur" data-ui-color="heal" alt="Vie" /><span id="health-value" class="vital-value">100</span><span id="health-max" class="vital-max">/ 100</span></div>
+                  <div class="bar-track"><div id="health-fill" class="bar-fill"></div></div>
+                </div>
+                <div class="vital" title="Énergie">
+                  <div class="vital-head"><img id="energy-icon" class="ui-icon" data-ui-icon="eclair" data-ui-color="warn" alt="Énergie" /><span id="energy-value" class="vital-value">100</span><span id="energy-max" class="vital-max">/ 100</span></div>
+                  <div class="bar-track"><div id="energy-fill" class="bar-fill"></div></div>
+                </div>
+                <div class="vital" id="oxygen-stat-block" title="Air" hidden>
+                  <div class="vital-head"><img id="oxygen-icon" class="ui-icon" data-ui-icon="goutte" data-ui-color="ice" alt="Air" /><span id="oxygen-value" class="vital-value">100</span><span id="oxygen-max" class="vital-max">/ 100</span></div>
+                  <div class="bar-track"><div id="oxygen-fill" class="bar-fill"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="explore-row">
+            <div id="minimap-grid" aria-label="Mini-carte des environs découverts"></div>
+            <div id="lair-panel" hidden>
+              <div id="lair-row">
+                <span class="label">Repaire</span>
+                <span id="lair-name" class="unknown">Gardien inconnu</span>
+                <span id="lair-pips" aria-label="Indices trouvés"></span>
+              </div>
+              <div id="lair-sides"><span data-side="ouest">ouest</span><span data-side="centre">centre</span><span data-side="est" data-i18n="est (côté)">est</span></div>
+              <div id="lair-gauge" aria-label="Où chercher dans le segment">
+                <div id="lair-track"><div id="lair-band" hidden></div><div id="lair-you"></div></div>
+                <div id="lair-scale"><span id="lair-top"></span><span id="lair-you-label"></span><span id="lair-bottom"></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-block vitals">
+          <div class="level-row">
+            <span class="ui-icon-host" aria-hidden="true" data-ui-icon="niveau" data-ui-color="ice"></span>
+            <span id="level-value">Niveau 1</span>
+            <div class="xp-thread"><div id="xp-fill"></div></div>
+            <span id="xp-label">0 / 50</span>
+            <button type="button" id="talents-btn" class="talents-btn" title="Arbre de talents (touche T)">Talents</button>
+          </div>
+        </div>
+        <div class="stat-block" id="ordre-block" hidden>
+          <div class="stat-label ordre-label"><span id="ordre-label">Ordre</span><b id="ordre-value">0</b></div>
+          <div id="ordre-clauses" class="ordre-clauses"></div>
+        </div>
+        <div class="stat-block" id="rep-block">
+          <div class="stat-label">Réputation</div>
+          <div id="rep-rows"></div>
+        </div>
+
+        <!-- 2026-10-11 -- direct user request ("les gemmes ont ete refaites,
+             tu peux mettre a jour le visuel") : gem_<color>_16.png is the
+             dedicated 16x16 HUD icon the new "Gemmes Pixel" canvas exports
+             (its own silhouette redrawn at that size, not a downscale of
+             the 30x30 tile texture used in-world) -- see
+             scripts/generate_gem_sprites.py. -->
+        <div class="stat-block">
+          <div class="stat-label gems-label">
+            Gemmes
+            <span class="gems-total" aria-label="Total de gemmes">
+              <img src="./assets/patterns/gem_pile_16.png" alt="" />
+              <span id="gems-total">0</span>
+            </span>
+          </div>
+          <div id="gems-wallet">
+            <div class="gem-count">
+              <img src="./assets/patterns/gem_blue_16.png" alt="" />
+              <span id="gems-blue">0</span>
+            </div>
+            <div class="gem-count">
+              <img src="./assets/patterns/gem_green_16.png" alt="" />
+              <span id="gems-green">0</span>
+            </div>
+            <div class="gem-count">
+              <img src="./assets/patterns/gem_red_16.png" alt="" />
+              <span id="gems-red">0</span>
+            </div>
+            <div class="gem-count">
+              <img src="./assets/patterns/gem_yellow_16.png" alt="" />
+              <span id="gems-yellow">0</span>
+            </div>
+          </div>
+          <div class="stat-label ladder-label">Échelles <span class="ladder-verb">poser <kbd>X</kbd></span></div>
+          <div id="ladder-belt" aria-label="Échelles portées"></div>
+          <div id="pioche-row" hidden>
+            <div class="stat-label ladder-label"><span>Pioche <span id="pioche-plan" class="pioche-plan"></span></span><span id="pioche-stones" class="pioche-stones"></span></div>
+            <div id="pioche-belt" aria-label="Chatons de la pioche"></div>
+          </div>
+        </div>
+
+        <div id="inv-panel" class="inv-panel">
+          <div id="inv-tabs" class="inv-tabs">
+            <button id="inv-tab-objets" class="inv-tab active" type="button">
+              OBJETS<span id="inv-tab-count-objets" class="inv-tab-count">0</span>
+            </button>
+            <button id="inv-tab-fusions" class="inv-tab" type="button">
+              FUSIONS<span id="inv-tab-count-fusions" class="inv-tab-count">0/0</span>
+            </button>
+            <button id="inv-tab-meta" class="inv-tab" type="button">
+              MÉTA<span id="inv-tab-count-meta" class="inv-tab-count">0/0</span>
+            </button>
+            <button id="inv-tab-quetes" class="inv-tab" type="button">
+              QUÊTES<span id="inv-tab-count-quetes" class="inv-tab-count">0</span>
+            </button>
+          </div>
+          <div id="inv-tab-body" class="inv-tab-body"></div>
+        </div>
+      </aside>
+      <div id="game">
+        <div id="boot-loading">
+          <div id="boot-loading-brand">ROCK BOTTOM</div>
+          <div id="boot-loading-label">Chargement en cours</div>
+          <div id="boot-loading-bar" aria-hidden="true"></div>
+          <div id="boot-loading-meta"><span id="boot-loading-strate"></span><span id="boot-loading-pct"></span></div>
+          <div id="boot-loading-quip" aria-live="polite"></div>
+        </div>
+        <div id="tutorial-coach" hidden>
+          <div id="tutorial-coach-head">
+            <span id="tutorial-coach-step"></span>
+            <button id="tutorial-coach-skip" type="button">Passer le tutoriel</button>
+          </div>
+          <div id="tutorial-coach-goal"></div>
+        </div>
+        <div id="forge-hint" hidden>Une Forge est à proximité — appuie sur <kbd>Entrée</kbd> pour l’ouvrir</div>
+        <div id="merchant-hint" hidden>Un Marchand est à proximité — appuie sur <kbd>Entrée</kbd> pour lui parler</div>
+        <div id="savepoint-hint" hidden>Point de sauvegarde à proximité — appuie sur <kbd>Entrée</kbd> pour sauvegarder</div>
+        <div id="healer-hint" hidden>Un Guérisseur est à proximité — appuie sur <kbd>Entrée</kbd> pour lui parler</div>
+        <div id="lift-hint" hidden>Un Monte-charge est à proximité — appuie sur <kbd>Entrée</kbd> pour l’utiliser</div>
+        <div id="rift-hint" hidden>La Faille — appuie sur <kbd>Entrée</kbd> pour la traverser</div>
+        <div id="shrine-hint" hidden>Un Sanctuaire des objets est à proximité — appuie sur <kbd>Entrée</kbd> pour faire une offrande</div>
+        <div id="context-lost-overlay" hidden>
+          <div id="context-lost-card">
+            <div id="context-lost-title"><span class="ui-icon-host" aria-hidden="true" data-ui-icon="alerte" data-ui-color="bad"></span>Contexte graphique perdu</div>
+            <div id="context-lost-desc">
+              Le rendu du jeu s’est interrompu (le navigateur ou la carte graphique a
+              coupé la connexion WebGL). Reconnexion automatique en cours…
+            </div>
+            <button id="context-lost-reload" type="button" hidden>Recharger la page</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="forge-overlay" hidden>
+      <div id="forge-panel">
+        <div id="forge-panel-header">
+          <div id="forge-panel-title"><span class="ui-icon-host" aria-hidden="true" data-ui-icon="forge" data-ui-color="forge"></span>La Forge</div>
+          <button id="forge-close" type="button" aria-label="Fermer">✕</button>
+        </div>
+        <div id="forge-tabs" role="tablist"></div>
+        <div id="forge-tab-sub"></div>
+        <div id="forge-recipe-list"></div>
+        <div id="forge-meta-list" hidden></div>
+      </div>
+    </div>
+
+    <div id="merchant-overlay" hidden>
+      <div id="merchant-panel">
+        <div id="merchant-panel-header">
+          <div id="merchant-panel-title"><span class="ui-icon-host" aria-hidden="true" data-ui-icon="marchand" data-ui-color="teal"></span>Le Marchand</div>
+          <button id="merchant-close" type="button" aria-label="Fermer">✕</button>
+        </div>
+        <div id="merchant-panel-sub">
+          Échange des gemmes contre des objets — le stock de ce village ne se renouvelle pas.
+        </div>
+        <div id="merchant-list"></div>
+      </div>
+    </div>
+
+    <div id="healer-overlay" hidden>
+      <div id="healer-panel">
+        <div id="healer-panel-header">
+          <div id="healer-panel-title"><span class="ui-icon-host" aria-hidden="true" data-ui-icon="fiole" data-ui-color="heal"></span>Le Guérisseur</div>
+          <button id="healer-close" type="button" aria-label="Fermer">✕</button>
+        </div>
+        <div id="healer-panel-sub">
+          Restaure vie et/ou énergie contre des gemmes — le prix augmente à chaque village atteint.
+        </div>
+        <div id="healer-list"></div>
+      </div>
+    </div>
+
+    <div id="bio-panel" hidden>
+      <div id="bio-content"></div>
+    </div>
+
+    <div id="lift-overlay" hidden>
+      <div id="lift-panel">
+        <div id="lift-panel-header">
+          <div id="lift-panel-title"><span class="ui-icon-host" aria-hidden="true" data-ui-icon="monteCharge" data-ui-color="ice"></span>Le Monte-charge</div>
+          <button id="lift-close" type="button" aria-label="Fermer">✕</button>
+        </div>
+        <div id="lift-panel-sub">
+          Remonte à la surface ou voyage vers un village déjà exploré contre des gemmes — le prix augmente avec la distance.
+        </div>
+        <div id="lift-list"></div>
+      </div>
+    </div>
+
+    <div id="shrine-overlay" hidden>
+      <div id="shrine-panel">
+        <div id="shrine-panel-header">
+          <div id="shrine-panel-title"><span class="ui-icon-host" aria-hidden="true" data-ui-icon="amphore" data-ui-color="amber"></span>Le Sanctuaire</div>
+          <button id="shrine-close" type="button" aria-label="Fermer">✕</button>
+        </div>
+        <div id="shrine-panel-sub"></div>
+        <div id="shrine-list"></div>
+      </div>
+    </div>
+
+    <div id="levelup-overlay" hidden>
+      <div id="levelup-panel" class="talent-panel" role="dialog" aria-label="Arbre de talents"></div>
+    </div>
+
+    <div id="registre-overlay" hidden>
+      <div id="registre-panel">
+        <div id="registre-header">
+          <div id="registre-title">Registre de dotation</div>
+          <div id="registre-balance"></div>
+          <button id="registre-close" type="button" aria-label="Fermer">✕</button>
+        </div>
+        <div id="registre-tabs"></div>
+        <div id="registre-body"></div>
+        <div id="registre-sheet"></div>
+      </div>
+    </div>
+
+    <div id="settings-overlay" hidden>
+      <div id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div id="settings-header">
+          <div id="settings-title">Paramètres</div>
+          <button id="settings-close" type="button" aria-label="Fermer">✕</button>
+        </div>
+
+        <div class="settings-section-title">Son</div>
+        <label class="settings-slider">
+          <span class="settings-slider-label">Musique</span>
+          <input id="settings-music" type="range" min="0" max="100" step="5" />
+          <span id="settings-music-value" class="settings-slider-value"></span>
+        </label>
+        <label class="settings-slider">
+          <span class="settings-slider-label">Bruitages et voix</span>
+          <input id="settings-sfx" type="range" min="0" max="100" step="5" />
+          <span id="settings-sfx-value" class="settings-slider-value"></span>
+        </label>
+
+        <div class="settings-section-title" id="settings-display-title">Affichage</div>
+        <label class="settings-toggle" id="settings-fullscreen-row">
+          <input id="settings-fullscreen" type="checkbox" />
+          <span class="settings-toggle-label">Plein écran</span>
+          <span class="settings-toggle-desc">Le jeu occupe tout l’écran. Échap maintenu ou F11 en sortent aussi.</span>
+        </label>
+        <div class="settings-choice">
+          <span class="settings-toggle-label">Qualité graphique</span>
+          <div class="settings-segments" id="settings-quality" role="radiogroup" aria-label="Qualité graphique">
+            <button type="button" role="radio" data-quality="auto">Auto</button>
+            <button type="button" role="radio" data-quality="haute">Haute</button>
+            <button type="button" role="radio" data-quality="moyenne">Moyenne</button>
+            <button type="button" role="radio" data-quality="legere">Légère</button>
+          </div>
+          <span class="settings-toggle-desc" id="settings-quality-desc"></span>
+        </div>
+
+        <div class="settings-choice">
+          <span class="settings-toggle-label">Langue</span>
+          <div class="settings-segments" id="settings-locale" role="radiogroup" aria-label="Langue">
+            <button type="button" role="radio" data-locale="fr" lang="fr">Français</button>
+            <button type="button" role="radio" data-locale="en" lang="en">English</button>
+            <button type="button" role="radio" data-locale="es" lang="es">Español</button>
+          </div>
+          <span class="settings-toggle-desc">Le jeu redémarre dans la langue choisie ; une descente en cours reprend à ta dernière sauvegarde.</span>
+        </div>
+
+        <div class="settings-section-title">Carnet</div>
+        <div class="settings-choice">
+          <span class="settings-toggle-label">Vitesse de la plume</span>
+          <div class="settings-segments" id="settings-quill" role="radiogroup" aria-label="Vitesse de la plume">
+            <button type="button" role="radio" data-quill="lente">Lente</button>
+            <button type="button" role="radio" data-quill="moyenne">Moyenne</button>
+            <button type="button" role="radio" data-quill="rapide">Rapide</button>
+          </div>
+          <span class="settings-toggle-desc">Le héros écrit son carnet quand il s’arrête. Tout reste à relire avec la touche J.</span>
+        </div>
+
+        <div class="settings-section-title">Dialogues</div>
+        <div class="settings-choice">
+          <span class="settings-toggle-label">Dialogues animés</span>
+          <div class="settings-segments" id="settings-dialogues" role="radiogroup" aria-label="Dialogues animés">
+            <button type="button" role="radio" data-dialogues="vivants">Vivants</button>
+            <button type="button" role="radio" data-dialogues="sobres">Sobres</button>
+          </div>
+          <span class="settings-toggle-desc">Vivants : la boîte et les mots appuyés réagissent à l’émotion de chaque réplique. Sobres : seuls les visages jouent.</span>
+        </div>
+
+        <div class="settings-section-title">Combat</div>
+        <label class="settings-toggle">
+          <input id="settings-assisted-timing" type="checkbox" />
+          <span class="settings-toggle-label">Timing assisté</span>
+          <span class="settings-toggle-desc">Chaque coup donné ou reçu compte comme « bien », sans rien à presser au bon moment.</span>
+        </label>
+
+        <div class="settings-section-title">Progression totale</div>
+        <div id="settings-progress"></div>
+
+        <div class="settings-section-title">Partie</div>
+        <div class="settings-action">
+          <button id="settings-restart" type="button" class="settings-danger">Recommencer l’aventure</button>
+          <div class="settings-action-desc" data-default="Abandonne la partie en cours et efface le point de sauvegarde. États de service et codex sont conservés.">
+            Abandonne la partie en cours et efface le point de sauvegarde. États de service et codex sont conservés.
+          </div>
+        </div>
+        <div class="settings-action">
+          <button id="settings-reset-codex" type="button" class="settings-danger">Réinitialiser le codex</button>
+          <div class="settings-action-desc" data-default="Masque à nouveau toutes les entrées du codex. États de service et boss vaincus pour la victoire sont conservés.">
+            Masque à nouveau toutes les entrées du codex. États de service et boss vaincus pour la victoire sont conservés.
+          </div>
+        </div>
+        <div class="settings-action">
+          <button id="settings-reset-all" type="button" class="settings-danger">Tout réinitialiser</button>
+          <div class="settings-action-desc" data-default="Efface tout : partie en cours, codex, objets débloqués, boss vaincus, maîtrise, galons, compteurs, intro et tutoriel. Seuls les réglages restent. Le jeu redémarre.">
+            Efface tout : partie en cours, codex, objets débloqués, boss vaincus, maîtrise, galons, compteurs, intro et tutoriel. Seuls les réglages restent. Le jeu redémarre.
+          </div>
+        </div>
+
+        <div id="settings-footer"><kbd>Échap</kbd> fermer</div>
+      </div>
+    </div>
+    <div id="codex-overlay" hidden>
+      <div id="codex-panel">
+        <div id="codex-header">
+          <svg width="33" height="24" viewBox="0 0 11 8" shape-rendering="crispEdges" aria-hidden="true"><g fill="currentColor"><rect x="1" y="0" width="1" height="1" /><rect x="2" y="0" width="1" height="1" /><rect x="3" y="0" width="1" height="1" /><rect x="7" y="0" width="1" height="1" /><rect x="8" y="0" width="1" height="1" /><rect x="9" y="0" width="1" height="1" /><rect x="0" y="1" width="1" height="1" /><rect x="4" y="1" width="1" height="1" /><rect x="6" y="1" width="1" height="1" /><rect x="10" y="1" width="1" height="1" /><rect x="0" y="2" width="1" height="1" /><rect x="2" y="2" width="1" height="1" /><rect x="4" y="2" width="1" height="1" /><rect x="6" y="2" width="1" height="1" /><rect x="8" y="2" width="1" height="1" /><rect x="10" y="2" width="1" height="1" /><rect x="0" y="3" width="1" height="1" /><rect x="4" y="3" width="1" height="1" /><rect x="6" y="3" width="1" height="1" /><rect x="10" y="3" width="1" height="1" /><rect x="0" y="4" width="1" height="1" /><rect x="2" y="4" width="1" height="1" /><rect x="4" y="4" width="1" height="1" /><rect x="6" y="4" width="1" height="1" /><rect x="8" y="4" width="1" height="1" /><rect x="10" y="4" width="1" height="1" /><rect x="0" y="5" width="1" height="1" /><rect x="4" y="5" width="1" height="1" /><rect x="6" y="5" width="1" height="1" /><rect x="10" y="5" width="1" height="1" /><rect x="1" y="6" width="1" height="1" /><rect x="2" y="6" width="1" height="1" /><rect x="3" y="6" width="1" height="1" /><rect x="4" y="6" width="1" height="1" /><rect x="5" y="6" width="1" height="1" /><rect x="6" y="6" width="1" height="1" /><rect x="7" y="6" width="1" height="1" /><rect x="8" y="6" width="1" height="1" /><rect x="9" y="6" width="1" height="1" /><rect x="5" y="7" width="1" height="1" /></g></svg>
+          <div id="codex-title">Codex</div>
+          <div id="codex-total"></div>
+          <button id="codex-close" type="button" aria-label="Fermer"><svg width="15" height="15" viewBox="0 0 5 5" shape-rendering="crispEdges" aria-hidden="true"><g fill="currentColor"><rect x="0" y="0" width="1" height="1" /><rect x="4" y="0" width="1" height="1" /><rect x="1" y="1" width="1" height="1" /><rect x="3" y="1" width="1" height="1" /><rect x="2" y="2" width="1" height="1" /><rect x="1" y="3" width="1" height="1" /><rect x="3" y="3" width="1" height="1" /><rect x="0" y="4" width="1" height="1" /><rect x="4" y="4" width="1" height="1" /></g></svg></button>
+        </div>
+        <div id="codex-tabs"></div>
+        <div id="codex-banner"></div>
+        <div id="codex-desc"></div>
+        <div id="codex-body"></div>
+        <div id="codex-footer"><span><kbd>←</kbd> <kbd>→</kbd> rubrique</span><span><kbd>↑</kbd> <kbd>↓</kbd> entrée</span><span><kbd>L</kbd> fermer</span></div>
+      </div>
+    </div>
+
+    <div id="touch-controls" class="touch-controls">
+      <div class="tc-dpad">
+        <button id="tc-up" class="tc-btn" type="button" aria-label="Sauter">▲</button>
+        <button id="tc-left" class="tc-btn" type="button" aria-label="Gauche">◀</button>
+        <button id="tc-down" class="tc-btn" type="button" aria-label="Bas">▼</button>
+        <button id="tc-right" class="tc-btn" type="button" aria-label="Droite">▶</button>
+      </div>
+      <div class="tc-actions">
+        <button id="tc-dig" class="tc-btn" type="button" aria-label="Creuser"><span class="ui-icon-host" data-ui-icon="pioche" data-ui-scale="3"></span></button>
+        <button id="tc-interact" class="tc-btn" type="button" aria-label="Interagir"><span class="ui-icon-host" data-ui-icon="main" data-ui-scale="2"></span></button>
+        <button id="tc-ability" class="tc-btn" type="button" aria-label="Capacité"><span class="ui-icon-host" data-ui-icon="capacite" data-ui-color="warn" data-ui-scale="3"></span></button>
+        <button id="tc-ladder" class="tc-btn" type="button" aria-label="Poser une échelle"><img src="./assets/patterns/ladder_30x30.png" alt="" /></button>
+      </div>
+    </div>
+  </body>
+</html>
